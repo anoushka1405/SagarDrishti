@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "duckdb-ais": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-duckdb@latest", "--db-path", "./data/ais_database.duckdb"],
+      "env": {
+        "DUCKDB_READONLY": "false"
+      }
+    },
+    "filesystem-data": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem@latest", "./data", "./config"]
+    },
+    "ocean-weather-fetch": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-fetch@latest"]
+    }
+  }
+}
