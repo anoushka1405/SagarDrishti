@@ -48,6 +48,33 @@
 
 ---
 
+## 🎯 Product Strategy & Feature Roadmap (Now vs. Next vs. Later)
+
+### 🟢 NOW (Building for Internal Round / MVP)
+1. **Full Detect → Age → Backtrack → AIS Correlation → Explainable Scoring Pipeline:**
+   - Look at SAR satellite image, confirm oil presence (lookalike filter), estimate slick age, rewind time (advection advection) to calculate origin, check nearby vessels, and rank suspects with human-readable evidence.
+2. **Near-Real-Time Polling Monitor (`src/pipeline/monitor.py`):**
+   - Automatically polls incoming image folders for new satellite pass arrivals and triggers the pipeline.
+3. **Proactive Vessel Risk Watchlist for Sensitive Zones (`src/scoring/proactive_risk.py`):**
+   - Continuously monitors vessel behavior in protected marine zones (e.g. Laccadive Sanctuary) and flags anomalous behavior (sudden speed drops, course deviations, AIS blackouts) *before* a spill occurs.
+4. **Vessel Identity Enrichment (`src/ais/correlation.py`):**
+   - Resolves raw MMSI IDs to vessel names and types (e.g., Cargo, Tanker, Container) for intuitive dashboard display.
+
+### 🟡 NEXT (Planned for Next Round / Architecture Slides)
+1. **Coastal Impact & Time-to-Shore Forecasting with Alerts:**
+   - Predicts exact landfall time and coastline impact zone, triggering early warnings ("Spill reaching coast in 8 hours").
+2. **Multi-Sensor Fusion (EO Optical Cross-Validation):**
+   - Fuses optical Earth Observation imagery (when cloud-free) to cross-validate SAR radar slick detections and reduce false alarms.
+
+### 🔴 LATER (Long-Term Production & Agency Deployment)
+1. **Historical Repeat-Offender & Fleet Risk Intelligence:**
+   - Accumulates multi-year historical spill incident databases to elevate baseline risk scores for vessels with past violations.
+2. **Direct Integration with Maritime Authorities (Coast Guard / DG Shipping):**
+   - Direct API integration with maritime response agency command centers for automated emergency dispatches.
+
+
+---
+
 ## 👥 Team Workflow & Git Instructions
 
 ### How to Safely Pull & Push Code to GitHub
