@@ -30,11 +30,13 @@
 - [ ] **Oil Weathering Factors (`src/age_estimation/age_model.py`)**:
   - Add evaporation and emulsification rate calculations to refine slick age window estimation.
 
-### Phase 3: Dashboard & Evidence Reporting 📊 (Priority: Medium)
+### Phase 3: Dashboard & Next-Gen React UI 🎨 (Priority: High)
+- [ ] **Modern React Web Application (`frontend/` or `dashboard/react/`)**:
+  - Build a high-performance React (Vite / Next.js) web dashboard with rich aesthetics, sleek dark mode, Mapbox / Leaflet GIS integration, interactive particle drift time-lapses, and real-time suspect vessel ranking cards.
 - [ ] **Automated Forensic Evidence PDF/HTML Export (`dashboard/app.py`)**:
-  - Add a button in the Streamlit UI to download a formatted legal evidence PDF report containing slick geometry, origin coordinates, and suspect vessel evidence bullets.
-- [ ] **Time-Lapse Drift Playback (`dashboard/components/map_view.py`)**:
-  - Add interactive time-slider controls to animate particle movement (+1h to +12h forecast) on Folium / PyDeck maps.
+  - Add a button in the UI to download a formatted legal evidence PDF report containing slick geometry, origin coordinates, and suspect vessel evidence bullets.
+- [ ] **Time-Lapse Drift Playback**:
+  - Add interactive time-slider controls to animate particle movement (+1h to +12h forecast) on map layers.
 - [ ] **Real-Time Alert Notifications (`src/pipeline/run_pipeline.py`)**:
   - Add email/SMS/webhook alerts (e.g. via SendGrid / Twilio) triggered when a high-confidence spill ($>70\%$) is identified.
 
