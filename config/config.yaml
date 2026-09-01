@@ -16,6 +16,7 @@ detection:
   confidence_threshold: 0.5
   speckle_filter_kernel: 5
   min_spill_area_km2: 0.1
+  checkpoint_path: "models/checkpoints/spill_unet_resnet34.pth"
 
 drift:
   n_particles: 500

@@ -18,6 +18,11 @@ SagarDrishti leverages Sentinel-1 SAR imagery, oceanographic drift modeling, and
 
 ---
 
+## 📋 Task Roadmap & TODO
+For a complete breakdown of completed features, remaining tasks, and team milestones, see [TODO.md](file:///d:/SagarDrishti/TODO.md).
+
+---
+
 ## 🚀 Quick Setup for Team Members
 
 ### 1. Clone the Repository
