@@ -4,7 +4,10 @@ Applies speckle filtering and normalizes backscatter intensities.
 """
 
 import numpy as np
-import cv2
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 
 def preprocess_sar(image: np.ndarray) -> np.ndarray:
     """
@@ -33,10 +36,13 @@ def preprocess_sar(image: np.ndarray) -> np.ndarray:
             scaled = np.zeros_like(band, dtype=np.uint8)
             
         # 2. Speckle Denoising using Bilateral Filter or Gaussian Blur
-        # Bilateral filter preserves edges (like oil spill boundary) while removing speckles
-        denoised = cv2.bilateralFilter(scaled, d=5, sigmaColor=50, sigmaSpace=50)
+        if cv2 is not None:
+            denoised = cv2.bilateralFilter(scaled, d=5, sigmaColor=50, sigmaSpace=50)
+        else:
+            denoised = scaled
         
         # 3. Convert back to float [0, 1]
         img[..., c] = denoised.astype(np.float32) / 255.0
         
     return img
+

@@ -6,76 +6,98 @@
 ---
 
 ## 🚦 Current Status Summary
-- ✅ **Core Pipeline Orchestration (`src/pipeline/run_pipeline.py`)**: Fully working end-to-end (loads satellite, cleans SAR, segments slick, filters lookalikes, estimates age, runs particle hindcast & forecast, correlates AIS pings, scores suspects, & outputs JSON).
-- ✅ **Mock & Synthetic Fallback Mode**: Pipeline runs cleanly with `--mock` flag when real files are missing.
-- ✅ **Interactive Dashboard (`dashboard/app.py`)**: Streamlit UI active and displaying GIS map layers, slick metrics, particle drift tracks, and ranked suspect vessel scorecards.
+- ✅ **Core Pipeline Orchestration (`src/pipeline/run_pipeline.py`)**: Fully working end-to-end (loads satellite, cleans SAR, segments slick with PyTorch U-Net weights `models/spill_unet.pth`, filters lookalikes, estimates age, runs particle hindcast & forecast, correlates AIS pings, scores suspects, & outputs JSON).
+- ✅ **FastAPI Backend Server (`src/api/main.py`)**: Fully implemented & active with endpoints `/api/health`, `/api/dataset/categories`, `/api/sar_preview`, `/api/analyze`, `/api/proactive_watchlist`, and `/api/simulate_drift`.
+- ✅ **React Web Application (`frontend/`)**: Modern Vite + Tailwind CSS React dashboard built with `ForensicTab.jsx`, `ProactiveTab.jsx`, `SandboxTab.jsx`, `GISMap.jsx`, and `HelpModal.jsx`.
+- ✅ **Mock & Synthetic Fallback Mode**: Pipeline runs cleanly with `--mock` flag when real files or pings are missing.
 - ✅ **Automated Tests (`tests/test_pipeline.py`)**: All 4 pytest integration smoke tests pass cleanly (`4/4 passed`).
+- ⚠️ **`/api/simulate_drift` is currently a fake Gaussian dispersion placeholder, NOT the real advection engine** — see Phase 1, must be resolved before demo, not left silent.
+- ⚠️ **Data storage for the 450-image real dataset (`data/raw/SARSatelite/Images/`) has not been confirmed safe for a 6-person team** — see Phase 1.
 
 ---
 
-## 📌 Remaining Tasks & Future Roadmap
+## 📌 Remaining Tasks & Roadmap
 
-### Phase 1: Real Data & Model Fine-Tuning 🤖 (Priority: High)
-- [ ] **Pretrained U-Net Weights (`src/detection/segmentation_model.py`)**:
-  - Train U-Net / DeepLab model on labeled Sentinel-1 SAR oil spill datasets (e.g. SARSatelite) and save PyTorch model weights (`.pth`) to `models/spill_unet.pth`.
-  - Update `SpillSegmentationModel` to load weights by default.
-- [ ] **Live NetCDF Data Loaders (`src/data/loaders.py`)**:
-  - Replace mock grid fallback with live ERA5 wind and HYCOM current NetCDF file parsing for real ocean coordinates.
-- [ ] **Live AIS Feed Integration (`src/data/loaders.py` / `src/ais/correlation.py`)**:
-  - Add optional live AIS stream loader (e.g., AISHub / Spire API / MarineTraffic) alongside CSV and synthetic data.
+### Phase 1: Must-Fix Before Internal Round (Priority: Highest)
 
-### Phase 2: Advanced Marine Physics 🌊 (Priority: Medium)
-- [ ] **Stokes Wave Drift (`src/drift/forward_simulation.py` & `backward_hindcast.py`)**:
-  - Integrate Stokes wave drift into particle advection alongside current vectors and 3% wind drift factor.
-- [ ] **Oil Weathering Factors (`src/age_estimation/age_model.py`)**:
-  - Add evaporation and emulsification rate calculations to refine slick age window estimation.
+- [ ] **Sandbox integrity fix (`src/api/main.py`, `frontend/src/components/SandboxTab.jsx`)**:
+  - `/api/simulate_drift` currently returns a synthetic Gaussian dispersion approximation instead of calling the real `src/drift/forward_simulation.py` / `backward_hindcast.py` modules.
+  - Decide one of two paths and execute it — do not leave this silently fake:
+    1. Wire the endpoint to the real physics modules, or
+    2. Relabel the Sandbox UI copy as an illustrative/simplified visualization so it's never presented as the production engine.
+  - Update the pitch script (Phase 3 presentation prep) to match whichever path is chosen.
 
-### Phase 3: Dashboard & Next-Gen React UI 🎨 (Priority: High)
-- [ ] **Modern React Web Application (`frontend/` or `dashboard/react/`)**:
-  - Build a high-performance React (Vite / Next.js) web dashboard with rich aesthetics, sleek dark mode, Mapbox / Leaflet GIS integration, interactive particle drift time-lapses, and real-time suspect vessel ranking cards.
-- [ ] **Automated Forensic Evidence PDF/HTML Export (`dashboard/app.py`)**:
-  - Add a button in the UI to download a formatted legal evidence PDF report containing slick geometry, origin coordinates, and suspect vessel evidence bullets.
-- [ ] **Time-Lapse Drift Playback**:
-  - Add interactive time-slider controls to animate particle movement (+1h to +12h forecast) on map layers.
+- [ ] **ML Segmentation Model Recall Tuning (`src/detection/train_model.py` & `segmentation_model.py`)**:
+  - Address the ~40% recall bottleneck: test threshold values (0.5 → 0.35 and nearby points against the validation set, don't just hardcode 0.35), add focal loss weighting alongside Dice+BCE, add `ReduceLROnPlateau` scheduler, mine hard negatives from look-alike images.
+  - Re-run full test-set evaluation afterward and update `models/spill_unet.pth` (the checkpoint everyone else's pipeline loads).
+
+- [ ] **Interactive Time-Lapse Drift Playback (`frontend/src/components/GISMap.jsx`)**:
+  - Add a time-slider control to animate particle movement (+1h to +12h forecast) step-by-step, replacing the current static overlay.
+
+- [ ] **Automated Forensic Evidence PDF/HTML Export (`frontend/src/components/ForensicTab.jsx`)**:
+  - Build the backend generator (slick geometry, origin coordinates + uncertainty, ranked suspect evidence bullets) and wire the existing (currently non-functional) download button to it.
+
+- [x] **Pretrained U-Net Weights (`src/detection/segmentation_model.py`)** — done.
+- [x] **Live Weather & Marine Data Loaders (`src/data/loaders.py`)** — done.
+- [x] **FastAPI REST Service (`src/api/main.py`)** — done, verified via direct endpoint testing.
+- [x] **Modern React Web Application (`frontend/`)** — done, verified via direct component review.
+
+---
+
+### Phase 2: Nice-to-Have Only If Time Remains (Priority: Low — do not let these take time from Phase 1)
+
 - [ ] **Real-Time Alert Notifications (`src/pipeline/run_pipeline.py`)**:
-  - Add email/SMS/webhook alerts (e.g. via SendGrid / Twilio) triggered when a high-confidence spill ($>70\%$) is identified.
-
-### Phase 4: Production API & Deployment 🚀 (Priority: Low)
-- [ ] **FastAPI Service (`src/pipeline/api.py`)**:
-  - Wrap `run_pipeline.py` in a RESTful API (`POST /api/v1/detect`) for external app integration.
-- [ ] **Dockerization (`Dockerfile` / `docker-compose.yml`)**:
-  - Create Docker containers for single-command deployment of backend pipeline + Streamlit UI.
-- [ ] **GitHub Actions CI/CD (`.github/workflows/ci.yml`)**:
-  - Add automated workflow running `pytest tests/test_pipeline.py` on pull requests.
+  - One simple demo email/SMS via a free-tier SendGrid/Twilio account when a high-confidence spill (>70%) is identified. Keep it minimal — a real agency integration is a Phase 4/Later item, not this.
+- [ ] **Stokes Wave Drift (`src/drift/forward_simulation.py` & `backward_hindcast.py`)**:
+  - Only attempt if the core pipeline is fully stable and rehearsed — marginal accuracy gain judges are unlikely to probe deeply.
+- [ ] **Oil Weathering Factors (`src/age_estimation/age_model.py`)**:
+  - Same caveat as above — nice scientific depth, low priority for this round.
 
 ---
 
-## 🎯 Product Strategy & Feature Roadmap (Now vs. Next vs. Later)
+### Phase 3: Presentation (Priority: Highest — run in parallel with Phase 1, not after it)
 
-### 🟢 NOW (Building for Internal Round / MVP)
-1. **Full Detect → Age → Backtrack → AIS Correlation → Explainable Scoring Pipeline:**
-   - Look at SAR satellite image, confirm oil presence (lookalike filter), estimate slick age, rewind time (advection advection) to calculate origin, check nearby vessels, and rank suspects with human-readable evidence.
-2. **Near-Real-Time Polling Monitor (`src/pipeline/monitor.py`):**
-   - Automatically polls incoming image folders for new satellite pass arrivals and triggers the pipeline.
-3. **Proactive Vessel Risk Watchlist for Sensitive Zones (`src/scoring/proactive_risk.py`):**
-   - Continuously monitors vessel behavior in protected marine zones (e.g. Laccadive Sanctuary) and flags anomalous behavior (sudden speed drops, course deviations, AIS blackouts) *before* a spill occurs.
-4. **Vessel Identity Enrichment (`src/ais/correlation.py`):**
-   - Resolves raw MMSI IDs to vessel names and types (e.g., Cargo, Tanker, Container) for intuitive dashboard display.
+- [ ] Convert slide deck content into final PPTX (innovation, feasibility, risks, strategies, impact, benefits, USP).
+- [ ] Write the live demo narrative as an investigation story (spill → age → origin → suspect vessel → evidence), not a feature tour.
+- [ ] Confirm the demo script's Sandbox language matches whichever Phase 1 decision was made — don't claim "full physics" unless it was actually wired.
+- [ ] Prepare direct answers for likely questions: "is this real-time," "how is an attribution score not an accusation," "where does your data come from," "why polling instead of continuous monitoring."
+- [ ] Run at least one full team dry-run once Phase 1 items are done.
 
-### 🟡 NEXT (Planned for Next Round / Architecture Slides)
-1. **Coastal Impact & Time-to-Shore Forecasting with Alerts:**
-   - Predicts exact landfall time and coastline impact zone, triggering early warnings ("Spill reaching coast in 8 hours").
-2. **Multi-Sensor Fusion (EO Optical Cross-Validation):**
-   - Fuses optical Earth Observation imagery (when cloud-free) to cross-validate SAR radar slick detections and reduce false alarms.
+---
+
+### Phase 4: Explicitly Deferred to Roadmap Slide Only — Do NOT Build for Internal Round
+
+- [ ] **Live AIS Feed Integration (AISHub / Spire / MarineTraffic)**: paid commercial APIs, explicitly a production-phase item, not a hackathon gap. State this on the roadmap slide, don't attempt integration now.
+- [ ] **Coastal Impact & Time-to-Shore Forecasting with Alerts**: needs coastline/protected-zone boundary data not yet collected — architecture-only slide item.
+- [ ] **Multi-Sensor Fusion (EO Optical Cross-Validation)**: second full data pipeline — next-round item.
+- [ ] **Dockerization (`Dockerfile` / `docker-compose.yml`)**: real risk of last-minute environment breakage this close to the deadline — use a simple start script instead for the actual demo.
+- [ ] **GitHub Actions CI/CD**: zero demo value to judges, purely internal engineering hygiene.
+- [ ] **Historical Repeat-Offender / Fleet Risk Intelligence**: needs persistent multi-incident data accumulated over time — vision slide only.
+- [ ] **Direct Integration with Coast Guard / DG Shipping systems**: needs real agency partnership — vision slide only.
+
+---
+
+## 🎯 Product Strategy Recap (Now vs. Next vs. Later)
+
+### 🟢 NOW (Internal Round / MVP)
+1. Full Detect → Age → Backtrack → AIS Correlation → Explainable Scoring Pipeline.
+2. Near-Real-Time Polling Monitor (`src/pipeline/monitor.py`).
+3. Proactive Vessel Risk Watchlist for Sensitive Zones (`src/scoring/proactive_risk.py`).
+4. Vessel Identity Enrichment (`src/ais/correlation.py`).
+5. Forensic Evidence PDF Export.
+6. Time-Lapse Drift Playback.
+7. Sandbox integrity fix.
+
+### 🟡 NEXT (Next Round / Architecture Slides Only)
+1. Coastal Impact & Time-to-Shore Forecasting with Alerts.
+2. Multi-Sensor Fusion (EO Optical Cross-Validation).
+3. Live AIS Feed Integration.
+4. Real-Time Alert Notifications (beyond a minimal demo version).
 
 ### 🔴 LATER (Long-Term Production & Agency Deployment)
-1. **Historical Repeat-Offender & Fleet Risk Intelligence:**
-   - Accumulates multi-year historical spill incident databases to elevate baseline risk scores for vessels with past violations.
-2. **Direct Integration with Maritime Authorities (Coast Guard / DG Shipping):**
-   - Direct API integration with maritime response agency command centers for automated emergency dispatches.
-
-
----
+1. Historical Repeat-Offender & Fleet Risk Intelligence.
+2. Direct Integration with Maritime Authorities (Coast Guard / DG Shipping).
+3. Dockerization & CI/CD.
 
 ## 👥 Team Workflow & Git Instructions
 

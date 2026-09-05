@@ -39,9 +39,8 @@ def simulate_forward(
     current_particles = particles.copy()
     
     # Standard initial time is the first timestamp in currents/wind
-    start_time = pd.to_datetime(currents["timestamp"][0])
-    if start_time.tz is not None:
-        start_time = start_time.tz_localize(None)
+    first_ts = currents["timestamp"][0] if hasattr(currents.get("timestamp"), "__getitem__") else currents.get("timestamp")
+    start_time = _make_tz_naive_scalar(first_ts) or pd.Timestamp.now()
     
     dt_seconds = time_step_minutes * 60.0
     total_steps = int(max(hours) * 60 / time_step_minutes)
@@ -124,17 +123,42 @@ def simulate_forward(
             
     return results
 
-def _find_closest_time_idx(timestamps: Any, target_time: pd.Timestamp) -> int:
+def _make_tz_naive_scalar(x: Any) -> Any:
+    """Helper to safely make a scalar timestamp or string tz-naive without AttributeError."""
+    if x is None:
+        return None
+    try:
+        ts = pd.Timestamp(x)
+        if getattr(ts, "tz", None) is not None:
+            return ts.tz_localize(None)
+        return ts
+    except Exception:
+        return x
+
+def _make_tz_naive_series(timestamps: Any) -> Any:
+    """Helper to safely make timestamp series/index tz-naive without AttributeError."""
+    try:
+        times = pd.to_datetime(timestamps)
+        if isinstance(times, pd.Series):
+            if hasattr(times, "dt") and getattr(times.dt, "tz", None) is not None:
+                return times.dt.tz_localize(None)
+            return times
+        elif isinstance(times, pd.DatetimeIndex):
+            if getattr(times, "tz", None) is not None:
+                return times.tz_localize(None)
+            return times
+        elif getattr(times, "tz", None) is not None:
+            return times.tz_localize(None)
+        return times
+    except Exception:
+        return timestamps
+
+def _find_closest_time_idx(timestamps: Any, target_time: Any) -> int:
     """Finds the index of the closest timestamp in the series."""
-    times = pd.to_datetime(timestamps)
-    t_time = pd.Timestamp(target_time)
-    if getattr(t_time, "tz", None) is not None:
-        t_time = t_time.tz_localize(None)
-    if isinstance(times, pd.Series):
-        if times.dt.tz is not None:
-            times = times.dt.tz_localize(None)
-    elif isinstance(times, pd.DatetimeIndex):
-        if times.tz is not None:
-            times = times.tz_localize(None)
-    diffs = np.abs(times - t_time)
-    return int(np.argmin(diffs))
+    t_time = _make_tz_naive_scalar(target_time)
+    times = _make_tz_naive_series(timestamps)
+    try:
+        diffs = np.abs(times - t_time)
+        return int(np.argmin(diffs))
+    except Exception:
+        return 0

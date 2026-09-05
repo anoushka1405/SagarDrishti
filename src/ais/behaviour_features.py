@@ -45,7 +45,7 @@ def extract_behaviour_features(
     times = []
     for p in trajectory:
         t = pd.to_datetime(p[2])
-        if t.tz is not None:
+        if getattr(t, "tz", None) is not None:
             t = t.tz_localize(None)
         times.append(t)
     
@@ -110,7 +110,7 @@ def extract_behaviour_features(
     gap_near_origin = False
     
     e_time = pd.to_datetime(event_time) if event_time else None
-    if e_time is not None and e_time.tz is not None:
+    if e_time is not None and getattr(e_time, "tz", None) is not None:
         e_time = e_time.tz_localize(None)
     
     for i in range(1, len(times)):

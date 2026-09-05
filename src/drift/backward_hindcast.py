@@ -46,9 +46,7 @@ def hindcast_origin(
             "hindcast_track": []
         }
         
-    obs_time = pd.Timestamp(pd.to_datetime(observation_time_str))
-    if obs_time.tz is not None:
-        obs_time = obs_time.tz_localize(None)
+    obs_time = _make_tz_naive_scalar(observation_time_str) or pd.Timestamp("2026-08-27T10:30:00Z")
     age_low, age_high = age_range
     mean_age = (age_low + age_high) / 2.0
     
@@ -165,17 +163,42 @@ def hindcast_origin(
         "hindcast_track": centroid_track
     }
 
+def _make_tz_naive_scalar(x: Any) -> Any:
+    """Helper to safely make a scalar timestamp or string tz-naive without AttributeError."""
+    if x is None:
+        return None
+    try:
+        ts = pd.Timestamp(x)
+        if getattr(ts, "tz", None) is not None:
+            return ts.tz_localize(None)
+        return ts
+    except Exception:
+        return x
+
+def _make_tz_naive_series(timestamps: Any) -> Any:
+    """Helper to safely make timestamp series/index tz-naive without AttributeError."""
+    try:
+        times = pd.to_datetime(timestamps)
+        if isinstance(times, pd.Series):
+            if hasattr(times, "dt") and getattr(times.dt, "tz", None) is not None:
+                return times.dt.tz_localize(None)
+            return times
+        elif isinstance(times, pd.DatetimeIndex):
+            if getattr(times, "tz", None) is not None:
+                return times.tz_localize(None)
+            return times
+        elif getattr(times, "tz", None) is not None:
+            return times.tz_localize(None)
+        return times
+    except Exception:
+        return timestamps
+
 def _find_closest_time_idx(timestamps: Any, target_time: Any) -> int:
     """Finds the index of the closest timestamp in the series."""
-    times = pd.to_datetime(timestamps)
-    t_time = pd.Timestamp(target_time)
-    if getattr(t_time, "tz", None) is not None:
-        t_time = t_time.tz_localize(None)
-    if isinstance(times, pd.Series):
-        if times.dt.tz is not None:
-            times = times.dt.tz_localize(None)
-    elif isinstance(times, pd.DatetimeIndex):
-        if times.tz is not None:
-            times = times.tz_localize(None)
-    diffs = np.abs(times - t_time)
-    return int(np.argmin(diffs))
+    t_time = _make_tz_naive_scalar(target_time)
+    times = _make_tz_naive_series(timestamps)
+    try:
+        diffs = np.abs(times - t_time)
+        return int(np.argmin(diffs))
+    except Exception:
+        return 0

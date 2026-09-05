@@ -31,6 +31,7 @@ class SpillSegmentationModel:
         
         candidate_ckpts = [
             checkpoint_path,
+            "models/spill_unet.pth",
             "models/checkpoints/spill_unet_resnet34.pth",
             "models/checkpoints/segmentation.pt",
             "config/spill_unet_resnet34.pth"
