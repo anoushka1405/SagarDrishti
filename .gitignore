@@ -57,3 +57,7 @@ dist-ssr/
 .vscode/
 *.swp
 *.swo
+
+models/spill_unet_friend_version.pth
+
+models/checkpoints/spill_unet_resnet34_friend_version.pth
