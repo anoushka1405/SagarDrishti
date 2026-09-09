@@ -1,7 +1,7 @@
-import React, { useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MapContainer, TileLayer, Polygon, Polyline, Circle, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { Navigation, AlertTriangle, ShieldCheck, Ship } from 'lucide-react';
+import { Navigation, AlertTriangle, ShieldCheck, Ship, Play, Pause, SkipForward, RotateCcw } from 'lucide-react';
 
 // Custom vessel marker icons factory
 function createVesselIcon(score) {
@@ -56,8 +56,48 @@ export default function GISMap({ pipelineResults, onSelectVessel, selectedVessel
     '12': '#c084fc',
   };
 
+  // Time-slider state
+  const timeSteps = ['all', ...Object.keys(forecastTracks).sort((a, b) => Number(a) - Number(b))];
+  const [activeStep, setActiveStep] = useState('all');
+  const [isPlaying, setIsPlaying] = useState(false);
+  const intervalRef = useRef(null);
+
+  const stepIndex = timeSteps.indexOf(activeStep);
+
+  const advanceStep = useCallback(() => {
+    setActiveStep((prev) => {
+      const idx = timeSteps.indexOf(prev);
+      const nextIdx = (idx + 1) % timeSteps.length;
+      return timeSteps[nextIdx];
+    });
+  }, [timeSteps]);
+
+  useEffect(() => {
+    if (isPlaying) {
+      intervalRef.current = setInterval(advanceStep, 1500);
+    }
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [isPlaying, advanceStep]);
+
+  const togglePlay = () => setIsPlaying((p) => !p);
+  const resetSlider = () => { setIsPlaying(false); setActiveStep('all'); };
+  const skipForward = () => {
+    setActiveStep((prev) => {
+      const idx = timeSteps.indexOf(prev);
+      const nextIdx = (idx + 1) % timeSteps.length;
+      return timeSteps[nextIdx];
+    });
+  };
+
+  // Filter forecast tracks based on active time step
+  const visibleTracks = activeStep === 'all'
+    ? forecastTracks
+    : { [activeStep]: forecastTracks[activeStep] };
+
   return (
-    <div className="relative w-full h-[520px] rounded-2xl overflow-hidden border border-slate-800 glass-panel shadow-2xl">
+    <div className="relative w-full h-[600px] rounded-2xl overflow-hidden border border-slate-800 glass-panel shadow-2xl">
       <MapContainer
         center={centroid}
         zoom={9}
@@ -127,8 +167,8 @@ export default function GISMap({ pipelineResults, onSelectVessel, selectedVessel
           />
         )}
 
-        {/* Forecast Particle Spread Clouds */}
-        {Object.entries(forecastTracks).map(([hr, pts]) => {
+        {/* Forecast Particle Spread Clouds (filtered by time slider) */}
+        {Object.entries(visibleTracks).map(([hr, pts]) => {
           const color = forecastColors[hr] || '#38bdf8';
           return (
             <React.Fragment key={hr}>
@@ -225,8 +265,80 @@ export default function GISMap({ pipelineResults, onSelectVessel, selectedVessel
         })}
       </MapContainer>
 
+      {/* Time-Slider Control Bar */}
+      <div className="absolute bottom-0 left-0 right-0 z-[1000] bg-slate-950/90 backdrop-blur-sm border-t border-slate-800 px-4 py-3">
+        <div className="flex items-center gap-3">
+          {/* Play / Pause */}
+          <button
+            onClick={togglePlay}
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-teal-500/20 border border-teal-500/40 text-teal-300 hover:bg-teal-500/30 transition-colors"
+            title={isPlaying ? 'Pause' : 'Play'}
+          >
+            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+          </button>
+
+          {/* Step Forward */}
+          <button
+            onClick={skipForward}
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 transition-colors"
+            title="Next step"
+          >
+            <SkipForward className="w-4 h-4" />
+          </button>
+
+          {/* Reset */}
+          <button
+            onClick={resetSlider}
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 transition-colors"
+            title="Show all"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
+
+          {/* Slider Track */}
+          <div className="flex-1 flex items-center gap-2">
+            <input
+              type="range"
+              min={0}
+              max={timeSteps.length - 1}
+              step={1}
+              value={stepIndex}
+              onChange={(e) => {
+                setIsPlaying(false);
+                setActiveStep(timeSteps[parseInt(e.target.value, 10)]);
+              }}
+              className="flex-1 h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-teal-400"
+            />
+          </div>
+
+          {/* Current Step Label */}
+          <div className="w-24 text-right">
+            <span className="text-[11px] font-mono font-bold text-teal-300">
+              {activeStep === 'all' ? 'All Hours' : `+${activeStep}h`}
+            </span>
+          </div>
+        </div>
+
+        {/* Step Tick Labels */}
+        <div className="flex justify-between mt-1 px-[72px]">
+          {timeSteps.map((step) => (
+            <button
+              key={step}
+              onClick={() => { setIsPlaying(false); setActiveStep(step); }}
+              className={`text-[9px] font-mono px-1 py-0.5 rounded transition-colors ${
+                activeStep === step
+                  ? 'text-teal-300 bg-teal-500/20'
+                  : 'text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              {step === 'all' ? 'ALL' : `${step}h`}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Map Floating Legend */}
-      <div className="absolute bottom-3 left-3 z-[1000] glass-panel px-3 py-2.5 rounded-xl border border-slate-800 text-[11px] space-y-1.5 text-slate-300">
+      <div className="absolute bottom-20 left-3 z-[1000] glass-panel px-3 py-2.5 rounded-xl border border-slate-800 text-[11px] space-y-1.5 text-slate-300">
         <div className="font-semibold text-slate-200 border-b border-slate-800 pb-1 mb-1 font-heading">
           GIS Layer Overlay
         </div>

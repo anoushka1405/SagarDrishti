@@ -63,7 +63,7 @@ class SpillSegmentationModel:
         else:
             logger.warning("segmentation-models-pytorch is not available. Falling back to threshold heuristics.")
 
-    def predict(self, image: np.ndarray, threshold: float = 0.5, ground_truth_mask: Optional[np.ndarray] = None) -> Tuple[np.ndarray, float]:
+    def predict(self, image: np.ndarray, threshold: float = 0.55, ground_truth_mask: Optional[np.ndarray] = None) -> Tuple[np.ndarray, float]:
         """
         Predict binary mask of oil spill from SAR image.
         

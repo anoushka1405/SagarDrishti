@@ -119,6 +119,33 @@ class DiceBCELoss(nn.Module):
         
         return self.weight_bce * bce_loss + self.weight_dice * dice_loss
 
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=0.75, gamma=2.0):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(self, inputs, targets):
+        bce = nn.functional.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
+        probs = torch.sigmoid(inputs)
+        pt = torch.where(targets == 1, probs, 1 - probs)
+        focal_weight = self.alpha * (1 - pt) ** self.gamma
+        return (focal_weight * bce).mean()
+
+
+class CombinedLoss(nn.Module):
+    """Weighted combination: 0.4 * Focal + 0.35 * Dice + 0.25 * BCE."""
+    def __init__(self):
+        super(CombinedLoss, self).__init__()
+        self.focal = FocalLoss(alpha=0.75, gamma=2.0)
+        self.dice_bce = DiceBCELoss(weight_bce=0.5, weight_dice=0.5)
+
+    def forward(self, inputs, targets):
+        focal_loss = self.focal(inputs, targets)
+        dice_bce_loss = self.dice_bce(inputs, targets)
+        return 0.4 * focal_loss + 0.6 * dice_bce_loss
+
 def calculate_metrics(preds_binary: np.ndarray, targets_binary: np.ndarray) -> Dict[str, float]:
     """Calculate IoU, Dice, Precision, Recall."""
     intersection = np.logical_and(preds_binary, targets_binary).sum()
@@ -139,7 +166,7 @@ def calculate_metrics(preds_binary: np.ndarray, targets_binary: np.ndarray) -> D
 def train_spill_model(
     data_dir: str = "data/raw/SARSatelite",
     output_checkpoint: str = "models/checkpoints/spill_unet_resnet34.pth",
-    epochs: int = 10,
+    epochs: int = 15,
     batch_size: int = 4,
     lr: float = 1e-3,
     target_size: Tuple[int, int] = (256, 256)
@@ -193,14 +220,15 @@ def train_spill_model(
         activation=None
     ).to(device)
 
-    criterion = DiceBCELoss()
+    criterion = CombinedLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=3)
 
     best_val_loss = float("inf")
     os.makedirs(os.path.dirname(output_checkpoint), exist_ok=True)
 
     # Training Loop
-    logger.info("Starting PyTorch U-Net training loop...")
+    logger.info("Starting PyTorch U-Net training loop with Focal+Dice+BCE Loss & LR Scheduler...")
     for epoch in range(1, epochs + 1):
         model.train()
         train_loss = 0.0
@@ -227,7 +255,11 @@ def train_spill_model(
                 
         val_loss /= len(val_ds)
 
-        logger.info(f"Epoch [{epoch:02d}/{epochs:02d}] - Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
+        # Step the scheduler
+        scheduler.step(val_loss)
+        current_lr = optimizer.param_groups[0]["lr"]
+
+        logger.info(f"Epoch [{epoch:02d}/{epochs:02d}] - Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | LR: {current_lr:.6f}")
 
         # Save best model
         if val_loss < best_val_loss:
@@ -235,7 +267,100 @@ def train_spill_model(
             torch.save(model.state_dict(), output_checkpoint)
             logger.info(f"Saved new best model checkpoint to {output_checkpoint}")
 
-    # Evaluate on Test Set
+    # --- Hard Negative Mining: reweight loader to oversample worst cases ---
+    logger.info("\n=== Hard Negative Mining Pass (1 additional epoch) ===")
+    model.load_state_dict(torch.load(output_checkpoint, map_location=device))
+    model.eval()
+
+    sample_losses = []
+    with torch.no_grad():
+        for i, (imgs, masks) in enumerate(val_loader):
+            imgs, masks = imgs.to(device), masks.to(device)
+            logits = model(imgs)
+            loss_per_sample = nn.functional.binary_cross_entropy_with_logits(logits, masks, reduction="none").mean(dim=(1, 2, 3))
+            for j in range(loss_per_sample.size(0)):
+                sample_losses.append((val_paths[i * batch_size + j], loss_per_sample[j].item()))
+
+    # Sort by loss descending, take top 20% as hard negatives
+    sample_losses.sort(key=lambda x: x[1], reverse=True)
+    n_hard = max(1, int(len(sample_losses) * 0.20))
+    hard_negative_paths = [s[0] for s in sample_losses[:n_hard]]
+    logger.info(f"Identified {n_hard} hard negative samples (top 20% by loss)")
+
+    # Create oversampled training set: original train + hard negatives repeated
+    hard_ds = SARDataset(hard_negative_paths, target_size=target_size)
+    combined_paths = train_paths + hard_negative_paths * 3
+    combined_ds = SARDataset(combined_paths, target_size=target_size)
+    combined_loader = DataLoader(combined_ds, batch_size=batch_size, shuffle=True, num_workers=0)
+
+    # Fine-tune for 2 more epochs with lower LR
+    for epoch in range(1, 3):
+        model.train()
+        epoch_loss = 0.0
+        for imgs, masks in combined_loader:
+            imgs, masks = imgs.to(device), masks.to(device)
+            optimizer.zero_grad()
+            logits = model(imgs)
+            loss = criterion(logits, masks)
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item() * imgs.size(0)
+        epoch_loss /= len(combined_ds)
+        logger.info(f"Hard Neg Epoch [{epoch}/2] - Loss: {epoch_loss:.4f}")
+
+    # Save final model
+    torch.save(model.state_dict(), output_checkpoint)
+    logger.info(f"Saved hard-negative-finetuned checkpoint to {output_checkpoint}")
+
+    # --- Threshold Grid Search on Validation Set ---
+    logger.info("\n=== Threshold Grid Search on Validation Set ===")
+    model.load_state_dict(torch.load(output_checkpoint, map_location=device))
+    model.eval()
+
+    thresholds_to_test = [0.30, 0.35, 0.40, 0.45, 0.50, 0.55]
+    best_threshold = 0.5
+    best_f1 = 0.0
+
+    all_val_preds, all_val_targets = [], []
+    all_val_probs = []
+    with torch.no_grad():
+        for imgs, masks in val_loader:
+            imgs = imgs.to(device)
+            logits = model(imgs)
+            probs = torch.sigmoid(logits)
+            all_val_probs.append(probs.cpu().numpy())
+            all_val_targets.append(masks.cpu().numpy().astype(np.uint8))
+    all_val_probs = np.concatenate(all_val_probs, axis=0)
+    all_val_targets = np.concatenate(all_val_targets, axis=0)
+
+    for t in thresholds_to_test:
+        preds = (all_val_probs > t).astype(np.uint8)
+        m = calculate_metrics(preds, all_val_targets)
+        f1 = 2 * m["precision"] * m["recall"] / (m["precision"] + m["recall"] + 1e-6)
+        logger.info(f"  Threshold {t:.2f} -> IoU: {m['iou']:.4f} | Dice: {m['dice']:.4f} | Precision: {m['precision']:.4f} | Recall: {m['recall']:.4f} | F1: {f1:.4f}")
+        if f1 > best_f1:
+            best_f1 = f1
+            best_threshold = t
+
+    logger.info(f"\nBest threshold: {best_threshold:.2f} (F1={best_f1:.4f})")
+
+    # Also test at best threshold for recall-focused selection
+    best_recall = 0.0
+    recall_threshold = 0.5
+    for t in thresholds_to_test:
+        preds = (all_val_probs > t).astype(np.uint8)
+        m = calculate_metrics(preds, all_val_targets)
+        if m["recall"] > best_recall and m["precision"] >= 0.30:
+            best_recall = m["recall"]
+            recall_threshold = t
+
+    logger.info(f"Best recall-focused threshold: {recall_threshold:.2f} (Recall={best_recall:.4f}, min precision 0.30)")
+
+    # Use the F1-optimal threshold as final
+    final_threshold = best_threshold
+    logger.info(f"Using final threshold: {final_threshold}")
+
+    # --- Evaluate on Test Set ---
     logger.info("\n=== Evaluating Model on Held-Out Test Set ===")
     model.load_state_dict(torch.load(output_checkpoint, map_location=device))
     model.eval()
@@ -246,7 +371,7 @@ def train_spill_model(
             imgs = imgs.to(device)
             logits = model(imgs)
             probs = torch.sigmoid(logits)
-            preds = (probs > 0.5).cpu().numpy().astype(np.uint8)
+            preds = (probs > final_threshold).cpu().numpy().astype(np.uint8)
             targets = masks.cpu().numpy().astype(np.uint8)
             
             test_preds.append(preds)
@@ -256,15 +381,21 @@ def train_spill_model(
     test_targets = np.concatenate(test_targets, axis=0)
 
     metrics = calculate_metrics(test_preds, test_targets)
-    logger.info(f"Test Set Metrics -> IoU: {metrics['iou']} | Dice Score: {metrics['dice']} | Precision: {metrics['precision']} | Recall: {metrics['recall']}")
+    logger.info(f"Test Set Metrics (threshold={final_threshold}) -> IoU: {metrics['iou']} | Dice: {metrics['dice']} | Precision: {metrics['precision']} | Recall: {metrics['recall']}")
     print(f"\n=======================================================")
     print(f"SUCCESS: Model Training & Evaluation Complete!")
     print(f"Trained Checkpoint: {output_checkpoint}")
+    print(f"Optimal Threshold: {final_threshold}")
     print(f"Test Set IoU (Jaccard Index): {metrics['iou'] * 100:.2f}%")
     print(f"Test Set Dice Score: {metrics['dice'] * 100:.2f}%")
     print(f"Test Set Precision: {metrics['precision'] * 100:.2f}%")
     print(f"Test Set Recall: {metrics['recall'] * 100:.2f}%")
     print(f"=======================================================\n")
 
+    return final_threshold
+
 if __name__ == "__main__":
-    train_spill_model(epochs=10, batch_size=4, target_size=(256, 256))
+    best_threshold = train_spill_model(epochs=10, batch_size=4, target_size=(256, 256))
+    if best_threshold:
+        print(f"\nOptimal detection threshold for segmentation_model.py: {best_threshold}")
+        print("Update the default threshold in SpillSegmentationModel.predict() if needed.")

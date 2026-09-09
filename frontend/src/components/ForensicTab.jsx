@@ -15,7 +15,36 @@ export default function ForensicTab({
   currentImagePath,
 }) {
   const [selectedVessel, setSelectedVessel] = useState(null);
+  const [downloading, setDownloading] = useState(false);
   const detected = pipelineResults?.spill_detected;
+
+  const handleExportReport = async () => {
+    setDownloading(true);
+    try {
+      const res = await fetch('/api/export_report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image_path: currentImagePath || 'data/raw/sentinel1_sample.tif',
+          mock_mode: true,
+        }),
+      });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'sagardrishti_report.pdf';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export error:', err);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -62,6 +91,17 @@ export default function ForensicTab({
               </span>
             )}
           </button>
+
+          {pipelineResults && (
+            <button
+              onClick={handleExportReport}
+              disabled={downloading}
+              className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-amber-300 text-xs font-semibold transition-all disabled:opacity-50"
+            >
+              <Download className="w-4 h-4" />
+              <span>{downloading ? 'Generating...' : 'Export PDF Report'}</span>
+            </button>
+          )}
         </div>
       </div>
 

@@ -39,7 +39,7 @@ def load_config() -> Dict[str, Any]:
         # Return fallback configuration dict
         return {
             "data_sources": {"use_mock_if_missing": True},
-            "detection": {"confidence_threshold": 0.5},
+            "detection": {"confidence_threshold": 0.55},
             "drift": {"n_particles": 500, "wind_drift_factor": 0.03, "hindcast_hours": [1, 3, 6], "forecast_hours": [1, 3, 6, 12], "time_step_minutes": 15},
             "ais": {"search_radius_km": 50.0, "time_window_hours": 6.0, "trajectory_tolerance_km": 5.0},
             "scoring": {"weights": {"spatial": 0.30, "temporal": 0.25, "trajectory": 0.20, "behaviour": 0.10, "ais_anomaly": 0.10, "vessel_relevance": 0.05}}

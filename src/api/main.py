@@ -9,12 +9,13 @@ import glob
 import io
 import base64
 import numpy as np
+import pandas as pd
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 # Ensure workspace root is in sys.path
 WORKSPACE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -24,6 +25,9 @@ if WORKSPACE_ROOT not in sys.path:
 from src.pipeline.run_pipeline import run as run_pipeline
 from src.scoring.proactive_risk import run_proactive_watchlist
 from src.data.synthetic_ais import generate_synthetic_vessels
+from src.drift.forward_simulation import simulate_forward
+from src.drift.backward_hindcast import hindcast_origin
+from shapely.geometry import Polygon
 
 app = FastAPI(
     title="SagarDrishti Marine Intelligence API",
@@ -219,39 +223,195 @@ def get_proactive_watchlist():
 
 @app.post("/api/simulate_drift")
 def simulate_drift(req: DriftSimRequest):
-    """Simulates drift particle spread under custom environmental parameters."""
-    # Generate synthetic particle dispersion demo
+    """Simulates drift using real forward_simulation + backward_hindcast physics modules."""
     center_lat, center_lon = 18.43, 70.82
     np.random.seed(42)
-    
-    # Generate particles around origin
-    n = req.n_particles
-    lats = np.random.normal(center_lat, 0.02, n)
-    lons = np.random.normal(center_lon, 0.02, n)
-    
-    # Drift vectors: current + wind_drift_factor * wind
-    u_curr, v_curr = 0.15, 0.08
-    u_wind, v_wind = 5.0, 3.0
-    
-    v_drift_u = u_curr + req.wind_drift_factor * u_wind
-    v_drift_v = v_curr + req.wind_drift_factor * v_wind
-    
-    # Degree offsets per hour (~111km per degree)
-    lat_deg_per_hr = (v_drift_v * 3600.0) / 111000.0
-    lon_deg_per_hr = (v_drift_u * 3600.0) / (111000.0 * np.cos(np.radians(center_lat)))
-    
-    forecast = {}
-    for hr in req.forecast_hours:
-        hr_lats = lats + lat_deg_per_hr * hr + np.random.normal(0, 0.005 * np.sqrt(hr), n)
-        hr_lons = lons + lon_deg_per_hr * hr + np.random.normal(0, 0.005 * np.sqrt(hr), n)
-        forecast[str(hr)] = np.column_stack((hr_lats, hr_lons)).tolist()
-        
+
+    # Build a small spill polygon around center to initialize particles
+    poly = Polygon([
+        (center_lon - 0.015, center_lat - 0.010),
+        (center_lon + 0.015, center_lat - 0.010),
+        (center_lon + 0.015, center_lat + 0.010),
+        (center_lon - 0.015, center_lat + 0.010),
+    ])
+    from src.drift.particle_model import initialize_particles
+    particles = initialize_particles(poly, req.n_particles)
+
+    # Mock environmental data with timestamps spanning the simulation window
+    max_hr = max(req.forecast_hours) if req.forecast_hours else 12
+    timestamps = pd.date_range("2026-08-27T00:00:00", periods=max_hr * 4 + 1, freq="15min")
+
+    currents = {
+        "timestamp": timestamps,
+        "u_current": np.full(len(timestamps), 0.15),
+        "v_current": np.full(len(timestamps), 0.08),
+        "lat_grid": np.array([center_lat]),
+        "lon_grid": np.array([center_lon]),
+    }
+    wind = {
+        "timestamp": timestamps,
+        "u_wind": np.full(len(timestamps), 5.0),
+        "v_wind": np.full(len(timestamps), 3.0),
+        "lat_grid": np.array([center_lat]),
+        "lon_grid": np.array([center_lon]),
+    }
+
+    # Forward forecast via real physics engine
+    forecast_raw = simulate_forward(
+        particles, currents, wind,
+        hours=tuple(req.forecast_hours),
+        wind_drift_factor=req.wind_drift_factor,
+    )
+    forecast_tracks = {str(hr): pos.tolist() for hr, pos in forecast_raw.items()}
+
+    # Backward hindcast: use the +1h forecast as the "observed" slick
+    obs_hour = req.forecast_hours[0] if req.forecast_hours else 1
+    observed_particles = forecast_raw.get(obs_hour, particles)
+    hindcast_result = hindcast_origin(
+        observed_particles, currents, wind,
+        observation_time_str="2026-08-27T01:00:00Z",
+        age_range=(3.0, 8.0),
+        wind_drift_factor=req.wind_drift_factor,
+    )
+
+    origin_lat, origin_lon = hindcast_result["estimated_origin"]
+    hindcast_track = [list(pt) for pt in hindcast_result["hindcast_track"]]
+
     return {
         "center": [center_lat, center_lon],
         "wind_drift_factor": req.wind_drift_factor,
-        "n_particles": n,
-        "forecast_tracks": forecast
+        "n_particles": req.n_particles,
+        "forecast_tracks": forecast_tracks,
+        "hindcast": {
+            "estimated_origin": [origin_lat, origin_lon],
+            "origin_uncertainty_km": hindcast_result["origin_uncertainty_km"],
+            "release_window": [
+                str(hindcast_result["release_window"][0]),
+                str(hindcast_result["release_window"][1]),
+            ],
+            "track": hindcast_track,
+        },
     }
+
+@app.post("/api/export_report")
+def export_report(req: AnalyzeRequest):
+    """Generates a forensic PDF report from pipeline results."""
+    try:
+        from fpdf import FPDF
+
+        full_path = req.image_path
+        if full_path and not os.path.isabs(full_path):
+            full_path = os.path.join(WORKSPACE_ROOT, req.image_path)
+
+        result = run_pipeline(full_path, mock_mode=req.mock_mode)
+
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.add_page()
+
+        # Title
+        pdf.set_font("Helvetica", "B", 18)
+        pdf.cell(0, 12, "SagarDrishti Forensic Report", new_x="LMARGIN", new_y="NEXT", align="C")
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(120, 120, 120)
+        pdf.cell(0, 6, "Automated Satellite Oil Spill Detection & Vessel Attribution", new_x="LMARGIN", new_y="NEXT", align="C")
+        pdf.ln(4)
+
+        pdf.set_draw_color(200, 200, 200)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(6)
+
+        pdf.set_text_color(0, 0, 0)
+
+        # Section: Detection Summary
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.cell(0, 8, "1. Detection Summary", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 11)
+        rows = [
+            ("Spill Detected", "Yes" if result.get("spill_detected") else "No"),
+            ("Confidence", f"{result.get('confidence', 0)}%"),
+            ("Surface Area", f"{result.get('area_km2', 0)} km2"),
+            ("Perimeter", f"{result.get('perimeter_km', 0)} km"),
+        ]
+        for label, val in rows:
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.cell(55, 7, label + ":", new_x="END")
+            pdf.set_font("Helvetica", "", 11)
+            pdf.cell(0, 7, val, new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
+
+        # Section: Origin & Drift
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.cell(0, 8, "2. Origin & Drift Analysis", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 11)
+        origin = result.get("estimated_origin", [0, 0])
+        origin_rows = [
+            ("Estimated Origin", f"{origin[0]:.4f} N, {origin[1]:.4f} E"),
+            ("Uncertainty Radius", f"+/- {result.get('origin_uncertainty_km', 0)} km"),
+            ("Estimated Age", f"{result.get('age_low', 0)} - {result.get('age_high', 0)} hours"),
+            ("Age Confidence", f"{result.get('age_confidence', 0)}%"),
+        ]
+        for label, val in origin_rows:
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.cell(55, 7, label + ":", new_x="END")
+            pdf.set_font("Helvetica", "", 11)
+            pdf.cell(0, 7, val, new_x="LMARGIN", new_y="NEXT")
+
+        release_window = result.get("release_window")
+        if release_window:
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.cell(55, 7, "Release Window:", new_x="END")
+            pdf.set_font("Helvetica", "", 11)
+            pdf.cell(0, 7, f"{release_window[0]} to {release_window[1]}", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(4)
+
+        # Section: Suspect Vessel Rankings
+        vessels = result.get("ranked_vessels", [])
+        if vessels:
+            pdf.set_font("Helvetica", "B", 13)
+            pdf.cell(0, 8, "3. Suspect Vessel Rankings", new_x="LMARGIN", new_y="NEXT")
+            pdf.set_font("Helvetica", "", 10)
+
+            for i, v in enumerate(vessels[:5], 1):
+                pdf.set_font("Helvetica", "B", 11)
+                score = v.get("attribution_score", 0)
+                pdf.cell(0, 7,
+                    f"#{i}  {v.get('mmsi', 'N/A')}  ({v.get('vessel_type', 'Unknown')})  Score: {score}/100  [{v.get('confidence_level', '')}]",
+                    new_x="LMARGIN", new_y="NEXT")
+                pdf.set_font("Helvetica", "", 10)
+                pdf.cell(0, 6,
+                    f"    Closest Approach: {v.get('closest_distance_km', 0)} km  |  Time Offset: {v.get('time_delta_hours', 0)} hrs",
+                    new_x="LMARGIN", new_y="NEXT")
+                for ev in v.get("evidence", [])[:3]:
+                    pdf.set_x(15)
+                    pdf.cell(0, 5, f"  - {ev}", new_x="LMARGIN", new_y="NEXT")
+                pdf.ln(2)
+        else:
+            pdf.set_font("Helvetica", "B", 13)
+            pdf.cell(0, 8, "3. Suspect Vessel Rankings", new_x="LMARGIN", new_y="NEXT")
+            pdf.set_font("Helvetica", "", 11)
+            pdf.cell(0, 7, "No suspect vessels identified.", new_x="LMARGIN", new_y="NEXT")
+
+        # Footer
+        pdf.ln(6)
+        pdf.set_draw_color(200, 200, 200)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(3)
+        pdf.set_font("Helvetica", "I", 9)
+        pdf.set_text_color(140, 140, 140)
+        pdf.cell(0, 5, "Generated by SagarDrishti Marine Intelligence Platform", new_x="LMARGIN", new_y="NEXT", align="C")
+
+        pdf_buf = io.BytesIO()
+        pdf.output(pdf_buf)
+        pdf_buf.seek(0)
+
+        return StreamingResponse(
+            pdf_buf,
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=sagardrishti_report.pdf"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Report generation error: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

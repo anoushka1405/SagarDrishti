@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
-import { FlaskConical, Sliders, Play, Wind, Compass, RefreshCw } from 'lucide-react';
-import { MapContainer, TileLayer, Circle } from 'react-leaflet';
+import { FlaskConical, Sliders, Play, Wind, Compass, RefreshCw, AlertCircle, Target } from 'lucide-react';
+import { MapContainer, TileLayer, Circle, Polyline, CircleMarker, Tooltip } from 'react-leaflet';
 
 export default function SandboxTab() {
   const [particlesCount, setParticlesCount] = useState(500);
   const [windDriftFactor, setWindDriftFactor] = useState(0.03);
   const [loading, setLoading] = useState(false);
   const [simulationData, setSimulationData] = useState(null);
+  const [error, setError] = useState(null);
 
   const handleRunSimulation = async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch('/api/simulate_drift', {
         method: 'POST',
@@ -21,10 +23,15 @@ export default function SandboxTab() {
           forecast_hours: [1, 3, 6, 12],
         }),
       });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(errBody.detail || `Server error ${res.status}`);
+      }
       const data = await res.json();
       setSimulationData(data);
     } catch (err) {
       console.error('Simulation error:', err);
+      setError(err.message || 'Simulation failed');
     } finally {
       setLoading(false);
     }
@@ -32,6 +39,7 @@ export default function SandboxTab() {
 
   const center = simulationData?.center || [18.43, 70.82];
   const forecastTracks = simulationData?.forecast_tracks || {};
+  const hindcast = simulationData?.hindcast || null;
 
   const forecastColors = {
     '1': '#2dd4bf',
@@ -59,7 +67,7 @@ export default function SandboxTab() {
           </p>
         </div>
 
-        <button
+          <button
           onClick={handleRunSimulation}
           disabled={loading}
           className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-400 hover:to-cyan-400 text-slate-950 font-bold text-xs shadow-teal-glow transition-all disabled:opacity-50"
@@ -68,6 +76,17 @@ export default function SandboxTab() {
           <span>Execute Simulation</span>
         </button>
       </div>
+
+      {/* Error Banner */}
+      {error && (
+        <div className="glass-panel p-4 rounded-2xl border border-red-500/40 bg-red-500/10 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-red-300">Simulation Error</p>
+            <p className="text-xs text-red-400/80">{error}</p>
+          </div>
+        </div>
+      )}
 
       {/* Grid: Left Controls (4 cols) vs Right Interactive Map (8 cols) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -135,6 +154,36 @@ export default function SandboxTab() {
               </div>
             </div>
           </div>
+
+          {/* Hindcast Info Panel */}
+          {hindcast && (
+            <div className="glass-panel p-4 rounded-2xl border border-slate-800">
+              <h4 className="text-xs font-semibold text-orange-400 flex items-center gap-1.5 mb-2">
+                <Target className="w-3.5 h-3.5" />
+                Backward Hindcast Results
+              </h4>
+              <div className="grid grid-cols-2 gap-3 text-[11px]">
+                <div className="bg-slate-950/60 rounded-lg p-2">
+                  <span className="text-slate-500 block">Origin Lat</span>
+                  <span className="text-white font-mono font-bold">{hindcast.estimated_origin[0].toFixed(4)}</span>
+                </div>
+                <div className="bg-slate-950/60 rounded-lg p-2">
+                  <span className="text-slate-500 block">Origin Lon</span>
+                  <span className="text-white font-mono font-bold">{hindcast.estimated_origin[1].toFixed(4)}</span>
+                </div>
+                <div className="bg-slate-950/60 rounded-lg p-2">
+                  <span className="text-slate-500 block">Uncertainty</span>
+                  <span className="text-orange-300 font-mono font-bold">+/-{hindcast.origin_uncertainty_km.toFixed(1)} km</span>
+                </div>
+                <div className="bg-slate-950/60 rounded-lg p-2">
+                  <span className="text-slate-500 block">Release Window</span>
+                  <span className="text-white font-mono font-bold text-[10px]">
+                    {hindcast.release_window[0].slice(11, 16)} – {hindcast.release_window[1].slice(11, 16)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right Map View */}
@@ -177,6 +226,38 @@ export default function SandboxTab() {
                   </React.Fragment>
                 );
               })}
+
+              {/* Hindcast: backward drift track */}
+              {hindcast?.track && hindcast.track.length > 1 && (
+                <Polyline
+                  positions={hindcast.track}
+                  pathOptions={{ color: '#f97316', weight: 3, dashArray: '8 6', opacity: 0.9 }}
+                />
+              )}
+
+              {/* Hindcast: estimated origin marker */}
+              {hindcast?.estimated_origin && (
+                <CircleMarker
+                  center={hindcast.estimated_origin}
+                  radius={8}
+                  pathOptions={{ color: '#f97316', fillColor: '#f97316', fillOpacity: 0.9, weight: 2 }}
+                >
+                  <Tooltip direction="top" offset={[0, -8]} permanent>
+                    <span style={{ fontWeight: 700, fontSize: 11 }}>
+                      Est. Origin ({hindcast.estimated_origin[0].toFixed(3)}, {hindcast.estimated_origin[1].toFixed(3)})
+                    </span>
+                  </Tooltip>
+                </CircleMarker>
+              )}
+
+              {/* Hindcast: uncertainty radius */}
+              {hindcast?.estimated_origin && hindcast?.origin_uncertainty_km && (
+                <Circle
+                  center={hindcast.estimated_origin}
+                  radius={hindcast.origin_uncertainty_km * 1000}
+                  pathOptions={{ color: '#f97316', weight: 1, fillColor: '#f97316', fillOpacity: 0.08, dashArray: '4 4' }}
+                />
+              )}
             </MapContainer>
           </div>
         </div>
