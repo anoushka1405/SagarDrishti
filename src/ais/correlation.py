@@ -39,7 +39,10 @@ def find_candidate_vessels(
         
     e_time = pd.to_datetime(event_time)
     if getattr(e_time, "tz", None) is not None:
-        e_time = e_time.tz_localize(None)
+        if hasattr(e_time, "tz_localize"):
+            e_time = e_time.tz_localize(None)
+        elif hasattr(e_time, "tz_convert"):
+            e_time = e_time.tz_convert(None)
     
     # Work on a copy to avoid SettingWithCopyWarning
     df = ais_df.copy()
@@ -47,7 +50,10 @@ def find_candidate_vessels(
     # Ensure AIS timestamps are tz-naive
     df["timestamp_clean"] = pd.to_datetime(df["timestamp"])
     if hasattr(df["timestamp_clean"], "dt") and getattr(df["timestamp_clean"].dt, "tz", None) is not None:
-        df["timestamp_clean"] = df["timestamp_clean"].dt.tz_localize(None)
+        if hasattr(df["timestamp_clean"].dt, "tz_localize"):
+            df["timestamp_clean"] = df["timestamp_clean"].dt.tz_localize(None)
+        elif hasattr(df["timestamp_clean"].dt, "tz_convert"):
+            df["timestamp_clean"] = df["timestamp_clean"].dt.tz_convert(None)
     
     # Calculate distance and time delta for each ping
     df["distance_km"] = df.apply(

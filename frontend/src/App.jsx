@@ -103,7 +103,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#060a12] text-slate-100 font-sans pb-12">
+    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans pb-12">
       {/* Header */}
       <Header
         activeTab={activeTab}

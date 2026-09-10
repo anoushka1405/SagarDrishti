@@ -22,12 +22,18 @@ except ImportError:
 logger = logging.getLogger("segmentation_model")
 
 class SpillSegmentationModel:
-    def __init__(self, checkpoint_path: Optional[str] = None, device: Optional[str] = None):
+    def __init__(self, checkpoint_path: Optional[str] = None, device: Optional[str] = None,
+                 threshold: Optional[float] = None, config_path: str = "config/config.yaml"):
         """
         Initialize the U-Net spill segmentation model.
+        `threshold`, if not passed explicitly, is read from config.yaml
+        (key `segmentation_threshold`, falling back to `confidence_threshold`),
+        so the validation-selected optimal threshold from training becomes
+        the runtime default without touching this file again.
         """
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.use_neural_net = False
+        self.default_threshold = threshold if threshold is not None else self._load_threshold_from_config(config_path)
         
         candidate_ckpts = [
             checkpoint_path,
@@ -63,7 +69,36 @@ class SpillSegmentationModel:
         else:
             logger.warning("segmentation-models-pytorch is not available. Falling back to threshold heuristics.")
 
-    def predict(self, image: np.ndarray, threshold: float = 0.5, ground_truth_mask: Optional[np.ndarray] = None) -> Tuple[np.ndarray, float]:
+    def _load_threshold_from_config(self, config_path: str, fallback: float = 0.5) -> float:
+        try:
+            import yaml
+            with open(config_path, "r") as f:
+                cfg = yaml.safe_load(f) or {}
+
+            # Optional top-level override, e.g. `segmentation_threshold: 0.35`
+            if "segmentation_threshold" in cfg:
+                val = float(cfg["segmentation_threshold"])
+                logger.info(f"Loaded threshold {val} from {config_path} (key='segmentation_threshold')")
+                return val
+
+            # Check detection.segmentation_threshold (preferred config location)
+            detection_cfg = cfg.get("detection", {})
+            if "segmentation_threshold" in detection_cfg:
+                val = float(detection_cfg["segmentation_threshold"])
+                logger.info(f"Loaded threshold {val} from {config_path} (key='detection.segmentation_threshold')")
+                return val
+
+            # Otherwise use detection.confidence_threshold (existing key)
+            if "confidence_threshold" in detection_cfg:
+                val = float(detection_cfg["confidence_threshold"])
+                logger.info(f"Loaded threshold {val} from {config_path} (key='detection.confidence_threshold')")
+                return val
+        except Exception as e:
+            logger.warning(f"Could not load threshold from {config_path} ({e}); using default {fallback}")
+        return fallback
+
+    def predict(self, image: np.ndarray, threshold: Optional[float] = None, ground_truth_mask: Optional[np.ndarray] = None) -> Tuple[np.ndarray, float]:
+
         """
         Predict binary mask of oil spill from SAR image.
         
@@ -77,6 +112,7 @@ class SpillSegmentationModel:
             - binary_mask: (H, W) array of uint8 values {0, 1}
             - confidence: float representing mean probability inside the mask.
         """
+        threshold = self.default_threshold if threshold is None else threshold
         if ground_truth_mask is not None:
             mask = (ground_truth_mask > 0).astype(np.uint8)
             confidence = 0.95 if mask.sum() > 0 else 0.0
@@ -127,6 +163,10 @@ class SpillSegmentationModel:
 
                 prob_map = probs.squeeze().cpu().numpy()  # (orig_H, orig_W)
                 mask = (prob_map > threshold).astype(np.uint8)
+
+                if cv2 is not None and mask.sum() > 0:
+                    kernel = np.ones((3, 3), np.uint8)
+                    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
                 if mask.sum() > 0:
                     confidence = float(prob_map[mask == 1].mean())

@@ -159,7 +159,7 @@ with tab_proactive:
     st.markdown(
         """
         <div style="background-color: #0f161c; padding: 15px; border-radius: 8px; border: 1px dashed #1a3c40; margin-bottom: 20px;">
-            <span style="color: #26a69a; font-weight: bold; font-size: 1.05rem;">🌟 USP Feature: Proactive Maritime Surveillance</span><br>
+            <span style="color: #26a69a; font-weight: bold; font-size: 1.05rem;">🌟 Proactive Maritime Surveillance</span><br>
             Instead of reactively analyzing after a spill occurs, SagarDrishti continuously monitors vessels inside 
             environmentally sensitive zones. Suspicious maneuvers (stops, heading changes, AIS gap anomalies) trigger immediate alerts.
         </div>

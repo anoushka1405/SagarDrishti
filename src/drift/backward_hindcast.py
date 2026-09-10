@@ -170,7 +170,10 @@ def _make_tz_naive_scalar(x: Any) -> Any:
     try:
         ts = pd.Timestamp(x)
         if getattr(ts, "tz", None) is not None:
-            return ts.tz_localize(None)
+            if hasattr(ts, "tz_localize"):
+                return ts.tz_localize(None)
+            elif hasattr(ts, "tz_convert"):
+                return ts.tz_convert(None)
         return ts
     except Exception:
         return x
@@ -181,14 +184,23 @@ def _make_tz_naive_series(timestamps: Any) -> Any:
         times = pd.to_datetime(timestamps)
         if isinstance(times, pd.Series):
             if hasattr(times, "dt") and getattr(times.dt, "tz", None) is not None:
-                return times.dt.tz_localize(None)
+                if hasattr(times.dt, "tz_localize"):
+                    return times.dt.tz_localize(None)
+                elif hasattr(times.dt, "tz_convert"):
+                    return times.dt.tz_convert(None)
             return times
         elif isinstance(times, pd.DatetimeIndex):
             if getattr(times, "tz", None) is not None:
-                return times.tz_localize(None)
+                if hasattr(times, "tz_localize"):
+                    return times.tz_localize(None)
+                elif hasattr(times, "tz_convert"):
+                    return times.tz_convert(None)
             return times
         elif getattr(times, "tz", None) is not None:
-            return times.tz_localize(None)
+            if hasattr(times, "tz_localize"):
+                return times.tz_localize(None)
+            elif hasattr(times, "tz_convert"):
+                return times.tz_convert(None)
         return times
     except Exception:
         return timestamps
