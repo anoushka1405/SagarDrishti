@@ -14,6 +14,7 @@ from typing import Tuple, List, Dict, Any
 
 import numpy as np
 import pandas as pd
+import cv2
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -62,6 +63,12 @@ class SARDataset(Dataset):
             elif bands.shape[0] > 2:
                 bands = bands[:2]
                 
+        # Resize bands to target_size
+        if (bands.shape[1], bands.shape[2]) != self.target_size:
+            b0 = cv2.resize(bands[0], (self.target_size[1], self.target_size[0]), interpolation=cv2.INTER_AREA)
+            b1 = cv2.resize(bands[1], (self.target_size[1], self.target_size[0]), interpolation=cv2.INTER_AREA)
+            bands = np.stack([b0, b1], axis=0)
+
         # Z-score normalize per channel
         normalized_bands = np.zeros_like(bands, dtype=np.float32)
         for c in range(bands.shape[0]):
@@ -71,7 +78,7 @@ class SARDataset(Dataset):
             normalized_bands[c] = (b - mean_val) / std_val
 
         # Load corresponding ground truth mask
-        mask = np.zeros((bands.shape[1], bands.shape[2]), dtype=np.float32)
+        mask = np.zeros(self.target_size, dtype=np.float32)
         norm_path = os.path.normpath(img_path)
         parts = norm_path.split(os.sep)
         if "Images" in parts:
@@ -85,20 +92,12 @@ class SARDataset(Dataset):
             if os.path.exists(mask_path):
                 with rasterio.open(mask_path) as msrc:
                     m_arr = msrc.read(1)
+                    if m_arr.shape != self.target_size:
+                        m_arr = cv2.resize(m_arr, (self.target_size[1], self.target_size[0]), interpolation=cv2.INTER_NEAREST)
                     mask = (m_arr > 0).astype(np.float32)
 
-        # Convert to Tensors and resize to target_size
         img_tensor = torch.from_numpy(normalized_bands).float()  # (2, H, W)
         mask_tensor = torch.from_numpy(mask).unsqueeze(0).float() # (1, H, W)
-
-        # Interpolate to target size
-        if img_tensor.shape[1:] != self.target_size:
-            img_tensor = torch.nn.functional.interpolate(
-                img_tensor.unsqueeze(0), size=self.target_size, mode="bilinear", align_corners=False
-            ).squeeze(0)
-            mask_tensor = torch.nn.functional.interpolate(
-                mask_tensor.unsqueeze(0), size=self.target_size, mode="nearest"
-            ).squeeze(0)
 
         return img_tensor, mask_tensor
 
