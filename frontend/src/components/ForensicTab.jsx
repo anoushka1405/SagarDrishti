@@ -25,8 +25,27 @@ export default function ForensicTab({
     age_low: 3.5,
     age_high: 6.0,
     age_confidence: 82,
+    centroid: [18.43, 70.82],
     estimated_origin: [18.43, 70.82],
     origin_uncertainty_km: 4.5,
+    spill_polygon_coords: [
+      [18.445, 70.805],
+      [18.448, 70.835],
+      [18.425, 70.840],
+      [18.412, 70.815],
+      [18.430, 70.798]
+    ],
+    hindcast_track: [
+      [18.43, 70.82],
+      [18.41, 70.79],
+      [18.39, 70.76],
+      [18.37, 70.73]
+    ],
+    forecast_tracks: {
+      "1": [[18.435, 70.825], [18.438, 70.828], [18.432, 70.822]],
+      "3": [[18.445, 70.835], [18.448, 70.838], [18.442, 70.832]],
+      "6": [[18.460, 70.850], [18.463, 70.854], [18.458, 70.848]]
+    },
     ranked_vessels: [
       {
         mmsi: "SYN-998822101",
@@ -35,6 +54,12 @@ export default function ForensicTab({
         closest_distance_km: 1.2,
         time_delta_hours: 0.5,
         confidence_level: "High Probability",
+        trajectory: [
+          [18.35, 70.70, "2026-08-29T18:00:00Z", 12.0, 45.0],
+          [18.39, 70.76, "2026-08-29T18:30:00Z", 11.5, 45.0],
+          [18.43, 70.82, "2026-08-29T19:00:00Z", 0.5, 135.0],
+          [18.48, 70.88, "2026-08-29T20:15:00Z", 4.0, 45.0]
+        ],
         evidence: [
           "Crossed within 1.2km of origin centroid during release window",
           "Speed dropped from 12.0 to 0.5 knots during transit",
@@ -48,6 +73,11 @@ export default function ForensicTab({
         closest_distance_km: 3.8,
         time_delta_hours: 1.8,
         confidence_level: "Moderate Probability",
+        trajectory: [
+          [18.38, 70.65, "2026-08-29T18:00:00Z", 14.5, 30.0],
+          [18.42, 70.72, "2026-08-29T18:30:00Z", 14.2, 30.0],
+          [18.45, 70.78, "2026-08-29T19:00:00Z", 14.6, 30.0]
+        ],
         evidence: [
           "Crossed within 3.8km of origin centroid",
           "Maintained constant 14.2 knots transit speed"
@@ -60,6 +90,11 @@ export default function ForensicTab({
         closest_distance_km: 6.4,
         time_delta_hours: 2.5,
         confidence_level: "Low Probability",
+        trajectory: [
+          [18.25, 70.80, "2026-08-29T18:00:00Z", 10.0, 60.0],
+          [18.30, 70.85, "2026-08-29T18:45:00Z", 0.2, 180.0],
+          [18.36, 70.90, "2026-08-29T20:00:00Z", 3.5, 60.0]
+        ],
         evidence: ["Passed outside primary 5km uncertainty radius"]
       }
     ]
