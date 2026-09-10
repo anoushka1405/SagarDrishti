@@ -5,6 +5,14 @@ Serves satellite datasets, SAR image previews, pipeline analysis, proactive watc
 
 import os
 import sys
+
+# Cap CPU thread pools to prevent RAM spikes on 512MB free tier containers
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import glob
 import io
 import base64
@@ -23,7 +31,6 @@ WORKSPACE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "
 if WORKSPACE_ROOT not in sys.path:
     sys.path.append(WORKSPACE_ROOT)
 
-from src.pipeline.run_pipeline import run as run_pipeline
 from src.scoring.proactive_risk import run_proactive_watchlist
 from src.data.synthetic_ais import generate_synthetic_vessels
 from src.drift.forward_simulation import simulate_forward
@@ -152,6 +159,7 @@ def get_sar_preview(image_path: str = Query("data/raw/sentinel1_sample.tif")):
 def analyze_satellite_pass(req: AnalyzeRequest):
     """Runs the full SagarDrishti oil spill detection, drift, and AIS attribution pipeline."""
     try:
+        from src.pipeline.run_pipeline import run as run_pipeline
         full_path = req.image_path
         if full_path and not os.path.isabs(full_path):
             full_path = os.path.join(WORKSPACE_ROOT, req.image_path)

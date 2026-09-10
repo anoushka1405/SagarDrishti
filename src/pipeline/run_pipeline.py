@@ -17,7 +17,6 @@ import numpy as np
 from src.data.loaders import load_satellite, load_ais, load_ocean_currents, load_wind, DataLoadError
 from src.data.synthetic_ais import generate_synthetic_vessels
 from src.detection.preprocess import preprocess_sar
-from src.detection.segmentation_model import SpillSegmentationModel
 from src.detection.lookalike_filter import classify_dark_region
 from src.detection.spill_geometry import compute_geometry
 from src.age_estimation.age_model import estimate_spill_age
@@ -108,6 +107,7 @@ def run(image_path: str, mock_mode: bool = False) -> Dict[str, Any]:
         clean_sar = preprocess_sar(satellite_data["sar_array"])
         
         # Segment Spill
+        from src.detection.segmentation_model import SpillSegmentationModel
         segmenter = SpillSegmentationModel()
         gt_mask = satellite_data.get("ground_truth_mask", None)
         mask, conf = segmenter.predict(
