@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 # Ensure workspace root is in sys.path
 WORKSPACE_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -412,6 +413,11 @@ def export_report(req: AnalyzeRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Report generation error: {str(e)}")
+
+# Mount compiled React frontend static files if built (for Render deployment)
+FRONTEND_DIST = os.path.join(WORKSPACE_ROOT, "frontend", "dist")
+if os.path.exists(FRONTEND_DIST):
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn
