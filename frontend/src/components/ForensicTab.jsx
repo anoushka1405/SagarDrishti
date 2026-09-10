@@ -93,16 +93,14 @@ export default function ForensicTab({
             )}
           </button>
 
-          {pipelineResults && (
-            <button
-              onClick={handleExportReport}
-              disabled={downloading}
-              className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950 text-xs font-bold transition-all disabled:opacity-50 shadow-xs"
-            >
-              <Download className="w-4 h-4 text-amber-700" />
-              <span>{downloading ? 'Generating...' : 'Export PDF Report'}</span>
-            </button>
-          )}
+          <button
+            onClick={handleExportReport}
+            disabled={downloading}
+            className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-300 text-amber-950 text-xs font-bold transition-all disabled:opacity-50 shadow-xs"
+          >
+            <Download className="w-4 h-4 text-amber-700" />
+            <span>{downloading ? 'Generating PDF...' : 'Export PDF Report'}</span>
+          </button>
         </div>
       </div>
 
