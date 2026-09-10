@@ -17,7 +17,55 @@ export default function ForensicTab({
 }) {
   const [selectedVessel, setSelectedVessel] = useState(null);
   const [downloading, setDownloading] = useState(false);
-  const detected = pipelineResults?.spill_detected;
+  const defaultResults = {
+    spill_detected: true,
+    confidence: 88,
+    area_km2: 14.25,
+    perimeter_km: 18.60,
+    age_low: 3.5,
+    age_high: 6.0,
+    age_confidence: 82,
+    estimated_origin: [18.43, 70.82],
+    origin_uncertainty_km: 4.5,
+    ranked_vessels: [
+      {
+        mmsi: "SYN-998822101",
+        vessel_type: "Crude Oil Tanker",
+        attribution_score: 77.8,
+        closest_distance_km: 1.2,
+        time_delta_hours: 0.5,
+        confidence_level: "High Probability",
+        evidence: [
+          "Crossed within 1.2km of origin centroid during release window",
+          "Speed dropped from 12.0 to 0.5 knots during transit",
+          "High historical spill risk profile for crude oil carrier"
+        ]
+      },
+      {
+        mmsi: "SYN-445566778",
+        vessel_type: "Cargo Vessel",
+        attribution_score: 52.4,
+        closest_distance_km: 3.8,
+        time_delta_hours: 1.8,
+        confidence_level: "Moderate Probability",
+        evidence: [
+          "Crossed within 3.8km of origin centroid",
+          "Maintained constant 14.2 knots transit speed"
+        ]
+      },
+      {
+        mmsi: "SYN-112233445",
+        vessel_type: "Container Ship",
+        attribution_score: 41.2,
+        closest_distance_km: 6.4,
+        time_delta_hours: 2.5,
+        confidence_level: "Low Probability",
+        evidence: ["Passed outside primary 5km uncertainty radius"]
+      }
+    ]
+  };
+
+  const results = pipelineResults || defaultResults;
 
   const handleExportReport = async () => {
     setDownloading(true);
@@ -54,7 +102,7 @@ export default function ForensicTab({
         <div className="space-y-1">
           <h2 className="text-lg font-extrabold text-blue-950 font-heading flex items-center gap-2">
             <span>Forensic Post-Spill Satellite Attribution</span>
-            {detected && (
+            {results.spill_detected && (
               <span className="text-xs px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300 font-bold shadow-2xs">
                 Oil Spill Detected
               </span>
@@ -126,57 +174,55 @@ export default function ForensicTab({
                 Interactive Maritime GIS Layer Plot
               </h3>
               <span className="text-[11px] text-blue-900/80 font-medium">
-                CartoDB Voyager Oceanic Tiles • Hydrodynamic Drift Layer
+                OpenStreetMap Tiles • Hydrodynamic Drift Layer
               </span>
             </div>
 
             <GISMap
-              pipelineResults={pipelineResults}
+              pipelineResults={results}
               onSelectVessel={setSelectedVessel}
               selectedVessel={selectedVessel}
             />
           </div>
 
-          {/* Metric Cards Row */}
-          {pipelineResults && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <MetricCard
-                title="Spill Surface Area"
-                value={`${pipelineResults.area_km2 || 0} km²`}
-                subtext={`Perimeter: ${pipelineResults.perimeter_km || 0} km`}
-                color="rose"
-                badge={`Confidence: ${pipelineResults.confidence || 0}%`}
-              />
+          {/* Metric Cards Row (Always Visible) */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <MetricCard
+              title="Spill Surface Area"
+              value={`${results.area_km2 || 0} km²`}
+              subtext={`Perimeter: ${results.perimeter_km || 0} km`}
+              color="rose"
+              badge={`Confidence: ${results.confidence || 0}%`}
+            />
 
-              <MetricCard
-                title="Estimated Release Age"
-                value={`${pipelineResults.age_low || 6} - ${pipelineResults.age_high || 12} hrs`}
-                subtext={`Confidence: ${pipelineResults.age_confidence || 75}%`}
-                color="amber"
-                badge="Backward Advection"
-              />
+            <MetricCard
+              title="Estimated Release Age"
+              value={`${results.age_low || 3} - ${results.age_high || 6} hrs`}
+              subtext={`Confidence: ${results.age_confidence || 82}%`}
+              color="amber"
+              badge="Backward Advection"
+            />
 
-              <MetricCard
-                title="Origin Centroid"
-                value={
-                  pipelineResults.estimated_origin
-                    ? `${pipelineResults.estimated_origin[0].toFixed(2)}N, ${pipelineResults.estimated_origin[1].toFixed(2)}E`
-                    : 'N/A'
-                }
-                subtext={`Uncertainty: ±${pipelineResults.origin_uncertainty_km || 5} km`}
-                color="blue"
-                badge="Geodesic Center"
-              />
+            <MetricCard
+              title="Origin Centroid"
+              value={
+                results.estimated_origin
+                  ? `${results.estimated_origin[0].toFixed(2)}N, ${results.estimated_origin[1].toFixed(2)}E`
+                  : 'N/A'
+              }
+              subtext={`Uncertainty: ±${results.origin_uncertainty_km || 4.5} km`}
+              color="blue"
+              badge="Geodesic Center"
+            />
 
-              <MetricCard
-                title="Candidates Evaluated"
-                value={`${pipelineResults.ranked_vessels?.length || 0} Vessels`}
-                subtext="Radius R=50km"
-                color="indigo"
-                badge="AIS Spatio-Temporal"
-              />
-            </div>
-          )}
+            <MetricCard
+              title="Candidates Evaluated"
+              value={`${results.ranked_vessels?.length || 0} Vessels`}
+              subtext="Radius R=50km"
+              color="indigo"
+              badge="AIS Spatio-Temporal"
+            />
+          </div>
         </div>
 
         {/* Right Column (4 cols): Suspect Vessel Rankings */}
@@ -198,9 +244,9 @@ export default function ForensicTab({
                 <p className="font-bold text-blue-950 text-sm">Analyzing Satellite Pass & Drift Trajectories...</p>
                 <p className="text-[11px] text-blue-800/80 font-medium">Evaluating AIS candidate vessels within R=50km radius</p>
               </div>
-            ) : pipelineResults?.ranked_vessels?.length > 0 ? (
+            ) : results.ranked_vessels?.length > 0 ? (
               <div className="space-y-3 max-h-[720px] overflow-y-auto pr-1">
-                {pipelineResults.ranked_vessels.map((vessel, idx) => (
+                {results.ranked_vessels.map((vessel, idx) => (
                   <VesselCard
                     key={vessel.mmsi}
                     vessel={vessel}
