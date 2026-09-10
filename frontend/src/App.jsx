@@ -76,6 +76,20 @@ export default function App() {
 
   const handleUploadImage = async (file) => {
     setLoading(true);
+
+    // Instant local preview via FileReader
+    if (file.type && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const dataUrl = evt.target.result;
+        setPreviewData((prev) => ({
+          ...prev,
+          sar_image_base64: dataUrl,
+        }));
+      };
+      reader.readAsDataURL(file);
+    }
+
     const formData = new FormData();
     formData.append('file', file);
 

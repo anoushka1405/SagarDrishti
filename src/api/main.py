@@ -175,6 +175,24 @@ def convert_raster_to_png_base64(tif_path: str, is_mask: bool = False) -> Option
         print(f"Error rendering raster PNG preview for {tif_path}: {e}")
         return generate_synthetic_sar_png(is_mask=is_mask)
 
+def generate_mask_from_image(image_path: str) -> str:
+    try:
+        from PIL import Image, ImageFilter
+        ext = os.path.splitext(image_path)[1].lower()
+        if ext in ['.png', '.jpg', '.jpeg']:
+            img = Image.open(image_path).convert("L")
+            arr = np.array(img)
+            # Threshold dark backscatter slick regions (< 15th percentile)
+            threshold = np.percentile(arr, 15)
+            mask_arr = np.where(arr < threshold, 255, 0).astype(np.uint8)
+            mask_img = Image.fromarray(mask_arr).filter(ImageFilter.GaussianBlur(radius=1.5))
+            buf = io.BytesIO()
+            mask_img.save(buf, format="PNG")
+            return f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode('utf-8')}"
+    except Exception as e:
+        print(f"Error extracting mask from image: {e}")
+    return generate_synthetic_sar_png(is_mask=True)
+
 @app.post("/api/upload_sar")
 async def upload_sar_image(file: UploadFile = File(...)):
     """Uploads a custom SAR image (.png, .jpg, .tif) for analysis."""
@@ -186,7 +204,7 @@ async def upload_sar_image(file: UploadFile = File(...)):
             shutil.copyfileobj(file.file, buffer)
             
         sar_b64 = convert_raster_to_png_base64(file_path, is_mask=False)
-        mask_b64 = generate_synthetic_sar_png(is_mask=True)
+        mask_b64 = generate_mask_from_image(file_path)
         
         return {
             "status": "success",
