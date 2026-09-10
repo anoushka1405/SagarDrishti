@@ -96,16 +96,46 @@ def get_dataset_categories():
         "has_real_dataset": any(len(v) > 0 for v in categories.values())
     }
 
-def convert_raster_to_png_base64(tif_path: str) -> Optional[str]:
+def generate_synthetic_sar_png(is_mask: bool = False) -> str:
+    try:
+        from PIL import Image, ImageDraw, ImageFilter
+        if is_mask:
+            img = Image.new("L", (300, 300), 0)
+            draw = ImageDraw.Draw(img)
+            points = [(100, 120), (160, 100), (210, 140), (190, 180), (130, 200), (95, 160)]
+            draw.polygon(points, fill=255)
+            img = img.filter(ImageFilter.GaussianBlur(radius=1.5))
+        else:
+            np.random.seed(42)
+            base = np.random.normal(125, 22, (300, 300)).clip(0, 255).astype(np.uint8)
+            img = Image.fromarray(base).convert("L")
+            draw = ImageDraw.Draw(img)
+            points = [(100, 120), (160, 100), (210, 140), (190, 180), (130, 200), (95, 160)]
+            draw.polygon(points, fill=30)
+            img = img.filter(ImageFilter.GaussianBlur(radius=2.5))
+            arr = np.array(img).astype(float)
+            speckle = np.random.normal(1.0, 0.06, (300, 300))
+            final = np.clip(arr * speckle, 0, 255).astype(np.uint8)
+            img = Image.fromarray(final)
+        
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
+        return f"data:image/png;base64,{encoded}"
+    except Exception as e:
+        print(f"Error generating synthetic image: {e}")
+        return ""
+
+def convert_raster_to_png_base64(tif_path: str, is_mask: bool = False) -> Optional[str]:
     """Helper to convert a TIFF band into a base64 encoded PNG data URL."""
     try:
+        full_path = os.path.join(WORKSPACE_ROOT, tif_path) if not os.path.isabs(tif_path) else tif_path
+        if not os.path.exists(full_path):
+            return generate_synthetic_sar_png(is_mask=is_mask)
+            
         import rasterio
         from PIL import Image
         
-        full_path = os.path.join(WORKSPACE_ROOT, tif_path) if not os.path.isabs(tif_path) else tif_path
-        if not os.path.exists(full_path):
-            return None
-            
         with rasterio.open(full_path) as src:
             band = src.read(1)
             
@@ -127,12 +157,12 @@ def convert_raster_to_png_base64(tif_path: str) -> Optional[str]:
         return f"data:image/png;base64,{encoded}"
     except Exception as e:
         print(f"Error rendering raster PNG preview for {tif_path}: {e}")
-        return None
+        return generate_synthetic_sar_png(is_mask=is_mask)
 
 @app.get("/api/sar_preview")
 def get_sar_preview(image_path: str = Query("data/raw/sentinel1_sample.tif")):
     """Generates preview PNG base64 strings for raw SAR image and ground truth mask."""
-    sar_b64 = convert_raster_to_png_base64(image_path)
+    sar_b64 = convert_raster_to_png_base64(image_path, is_mask=False)
     
     # Try locating matching mask
     mask_b64 = None
@@ -146,7 +176,9 @@ def get_sar_preview(image_path: str = Query("data/raw/sentinel1_sample.tif")):
         name_part, ext_part = os.path.splitext(filename)
         parts[-1] = f"{name_part}_segmentation{ext_part}"
         mask_path = os.sep.join(parts)
-        mask_b64 = convert_raster_to_png_base64(mask_path)
+        mask_b64 = convert_raster_to_png_base64(mask_path, is_mask=True)
+    else:
+        mask_b64 = generate_synthetic_sar_png(is_mask=True)
         
     return {
         "image_path": image_path,

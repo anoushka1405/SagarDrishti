@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Sparkles, AlertCircle, Compass, Wind, Clock, ShieldCheck, MapPin, Download } from 'lucide-react';
+import { Play, Sparkles, AlertCircle, Compass, Wind, Clock, ShieldCheck, MapPin, Download, RefreshCw } from 'lucide-react';
 import SarViewer from './SarViewer';
 import GISMap from './GISMap';
 import MetricCard from './MetricCard';
@@ -192,7 +192,13 @@ export default function ForensicTab({
               </span>
             </div>
 
-            {pipelineResults?.ranked_vessels?.length > 0 ? (
+            {loading ? (
+              <div className="p-8 text-center text-blue-900/70 text-xs space-y-3">
+                <RefreshCw className="w-8 h-8 text-blue-600 animate-spin mx-auto" />
+                <p className="font-bold text-blue-950 text-sm">Analyzing Satellite Pass & Drift Trajectories...</p>
+                <p className="text-[11px] text-blue-800/80 font-medium">Evaluating AIS candidate vessels within R=50km radius</p>
+              </div>
+            ) : pipelineResults?.ranked_vessels?.length > 0 ? (
               <div className="space-y-3 max-h-[720px] overflow-y-auto pr-1">
                 {pipelineResults.ranked_vessels.map((vessel, idx) => (
                   <VesselCard
