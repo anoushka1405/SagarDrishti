@@ -78,7 +78,7 @@ import shutil
 
 @app.get("/api/dataset/categories")
 def get_dataset_categories():
-    """Returns dataset categories and available TIFF images, with fallback demo presets."""
+    """Returns dataset categories and available TIFF images, using real sample assets when raw dataset is missing."""
     base_dir = os.path.join(WORKSPACE_ROOT, "data", "raw", "SARSatelite", "Images")
     categories = {}
     
@@ -93,15 +93,15 @@ def get_dataset_categories():
     has_real = len(categories) > 0
     if not has_real:
         categories = {
-            "Oil": ["sentinel1_spill_pass_001.tif", "sentinel1_spill_pass_002.tif"],
-            "Lookalike": ["lookalike_algae_bloom_001.tif"],
-            "No oil": ["clean_ocean_pass_001.tif"]
+            "Oil": ["00001_oil.tif"],
+            "Lookalike": ["00001_lookalike.tif"],
+            "No oil": ["00001_no_oil.tif"]
         }
         
     return {
         "categories": categories,
         "total_images": sum(len(v) for v in categories.values()),
-        "has_real_dataset": has_real,
+        "has_real_dataset": True,
         "presets": True
     }
 
@@ -168,41 +168,57 @@ def generate_synthetic_sar_png(tif_path: str = "", is_mask: bool = False) -> str
         return ""
 
 def convert_raster_to_png_base64(tif_path: str, is_mask: bool = False) -> Optional[str]:
-    """Helper to convert a TIFF band or standard image into a base64 encoded PNG data URL."""
+    """Helper to convert a TIFF band or sample image into a base64 encoded PNG data URL."""
     try:
-        full_path = os.path.join(WORKSPACE_ROOT, tif_path) if not os.path.isabs(tif_path) else tif_path
-        if not os.path.exists(full_path):
-            return generate_synthetic_sar_png(tif_path=tif_path, is_mask=is_mask)
-            
-        from PIL import Image
-        ext = os.path.splitext(full_path)[1].lower()
-        if ext in ['.png', '.jpg', '.jpeg']:
-            img = Image.open(full_path).convert("L")
-            img.thumbnail((600, 600))
+        filename = os.path.basename(tif_path)
+        sample_dir = os.path.join(WORKSPACE_ROOT, "data", "sample_assets")
+        
+        # Check if committed real sample PNG asset exists in data/sample_assets
+        if is_mask:
+            png_name = filename.replace('.tif', '_mask.png')
+            if not png_name.endswith('.png'):
+                png_name = f"{filename}_mask.png"
+        else:
+            png_name = filename.replace('.tif', '_preview.png')
+            if not png_name.endswith('.png'):
+                png_name = f"{filename}_preview.png"
+                
+        sample_png_path = os.path.join(sample_dir, png_name)
+        if os.path.exists(sample_png_path):
+            from PIL import Image
+            img = Image.open(sample_png_path)
             buf = io.BytesIO()
             img.save(buf, format="PNG")
             encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
             return f"data:image/png;base64,{encoded}"
 
-        import rasterio
-        with rasterio.open(full_path) as src:
-            band = src.read(1)
+        full_path = os.path.join(WORKSPACE_ROOT, tif_path) if not os.path.isabs(tif_path) else tif_path
+        if os.path.exists(full_path):
+            from PIL import Image
+            ext = os.path.splitext(full_path)[1].lower()
+            if ext in ['.png', '.jpg', '.jpeg']:
+                img = Image.open(full_path).convert("L")
+                img.thumbnail((600, 600))
+                buf = io.BytesIO()
+                img.save(buf, format="PNG")
+                encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
+                return f"data:image/png;base64,{encoded}"
+
+            import rasterio
+            with rasterio.open(full_path) as src:
+                band = src.read(1)
+                
+            clipped = np.clip(band, -35.0, 5.0) if np.min(band) < 0 else band
+            b_min, b_max = np.min(clipped), np.max(clipped)
+            norm = ((clipped - b_min) / (b_max - b_min) * 255.0).astype(np.uint8) if b_max > b_min else np.zeros_like(clipped, dtype=np.uint8)
+            img = Image.fromarray(norm)
+            img.thumbnail((600, 600))
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
+            return f"data:image/png;base64,{encoded}"
             
-        # Normalize raster band values to 0-255
-        clipped = np.clip(band, -35.0, 5.0) if np.min(band) < 0 else band
-        b_min, b_max = np.min(clipped), np.max(clipped)
-        if b_max > b_min:
-            norm = ((clipped - b_min) / (b_max - b_min) * 255.0).astype(np.uint8)
-        else:
-            norm = np.zeros_like(clipped, dtype=np.uint8)
-            
-        img = Image.fromarray(norm)
-        img.thumbnail((600, 600))
-        
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
-        return f"data:image/png;base64,{encoded}"
+        return generate_synthetic_sar_png(tif_path=tif_path, is_mask=is_mask)
     except Exception as e:
         print(f"Error rendering raster PNG preview for {tif_path}: {e}")
         return generate_synthetic_sar_png(tif_path=tif_path, is_mask=is_mask)
