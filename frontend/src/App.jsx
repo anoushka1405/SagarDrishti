@@ -74,6 +74,49 @@ export default function App() {
     }
   };
 
+  const handleUploadImage = async (file) => {
+    setLoading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const uploadRes = await fetch('/api/upload_sar', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (uploadRes.ok) {
+        const uploadData = await uploadRes.json();
+        setCurrentImagePath(uploadData.image_path);
+        setPreviewData({
+          image_path: uploadData.image_path,
+          sar_image_base64: uploadData.sar_image_base64,
+          mask_image_base64: uploadData.mask_image_base64,
+          has_mask: true,
+        });
+
+        // Execute pipeline analysis on uploaded image
+        const analyzeRes = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image_path: uploadData.image_path,
+            mock_mode: true,
+          }),
+        });
+
+        if (analyzeRes.ok) {
+          const data = await analyzeRes.json();
+          setPipelineResults(data);
+        }
+      }
+    } catch (err) {
+      console.error('Failed uploading SAR image:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const runAnalysis = async (imagePath, mockMode = false) => {
     setLoading(true);
     setCurrentImagePath(imagePath);
@@ -122,6 +165,7 @@ export default function App() {
             loading={loading}
             onRunAnalysis={runAnalysis}
             onSelectImage={(path) => runAnalysis(path, false)}
+            onUploadImage={handleUploadImage}
             currentImagePath={currentImagePath}
           />
         )}

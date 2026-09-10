@@ -73,9 +73,12 @@ class DriftSimRequest(BaseModel):
 def health_check():
     return {"status": "ok", "app": "SagarDrishti FastAPI Server", "version": "2.0.0"}
 
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File
+import shutil
+
 @app.get("/api/dataset/categories")
 def get_dataset_categories():
-    """Returns dataset categories and available TIFF images."""
+    """Returns dataset categories and available TIFF images, with fallback demo presets."""
     base_dir = os.path.join(WORKSPACE_ROOT, "data", "raw", "SARSatelite", "Images")
     categories = {}
     
@@ -84,16 +87,22 @@ def get_dataset_categories():
             cat_dir = os.path.join(base_dir, cat)
             if os.path.exists(cat_dir):
                 tif_files = sorted([os.path.basename(f) for f in glob.glob(os.path.join(cat_dir, "*.tif"))])
-                categories[cat] = tif_files
-            else:
-                categories[cat] = []
-    else:
-        categories = {"Oil": [], "Lookalike": [], "No oil": []}
+                if tif_files:
+                    categories[cat] = tif_files
+                    
+    has_real = len(categories) > 0
+    if not has_real:
+        categories = {
+            "Oil": ["sentinel1_spill_pass_001.tif", "sentinel1_spill_pass_002.tif"],
+            "Lookalike": ["lookalike_algae_bloom_001.tif"],
+            "No oil": ["clean_ocean_pass_001.tif"]
+        }
         
     return {
         "categories": categories,
         "total_images": sum(len(v) for v in categories.values()),
-        "has_real_dataset": any(len(v) > 0 for v in categories.values())
+        "has_real_dataset": has_real,
+        "presets": True
     }
 
 def generate_synthetic_sar_png(is_mask: bool = False) -> str:
@@ -127,15 +136,23 @@ def generate_synthetic_sar_png(is_mask: bool = False) -> str:
         return ""
 
 def convert_raster_to_png_base64(tif_path: str, is_mask: bool = False) -> Optional[str]:
-    """Helper to convert a TIFF band into a base64 encoded PNG data URL."""
+    """Helper to convert a TIFF band or standard image into a base64 encoded PNG data URL."""
     try:
         full_path = os.path.join(WORKSPACE_ROOT, tif_path) if not os.path.isabs(tif_path) else tif_path
         if not os.path.exists(full_path):
             return generate_synthetic_sar_png(is_mask=is_mask)
             
-        import rasterio
         from PIL import Image
-        
+        ext = os.path.splitext(full_path)[1].lower()
+        if ext in ['.png', '.jpg', '.jpeg']:
+            img = Image.open(full_path).convert("L")
+            img.thumbnail((600, 600))
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
+            return f"data:image/png;base64,{encoded}"
+
+        import rasterio
         with rasterio.open(full_path) as src:
             band = src.read(1)
             
@@ -148,7 +165,6 @@ def convert_raster_to_png_base64(tif_path: str, is_mask: bool = False) -> Option
             norm = np.zeros_like(clipped, dtype=np.uint8)
             
         img = Image.fromarray(norm)
-        # Resize to manageable preview size if too large
         img.thumbnail((600, 600))
         
         buf = io.BytesIO()
@@ -158,6 +174,29 @@ def convert_raster_to_png_base64(tif_path: str, is_mask: bool = False) -> Option
     except Exception as e:
         print(f"Error rendering raster PNG preview for {tif_path}: {e}")
         return generate_synthetic_sar_png(is_mask=is_mask)
+
+@app.post("/api/upload_sar")
+async def upload_sar_image(file: UploadFile = File(...)):
+    """Uploads a custom SAR image (.png, .jpg, .tif) for analysis."""
+    try:
+        scratch_dir = os.path.join(WORKSPACE_ROOT, "scratch", "uploads")
+        os.makedirs(scratch_dir, exist_ok=True)
+        file_path = os.path.join(scratch_dir, file.filename)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        sar_b64 = convert_raster_to_png_base64(file_path, is_mask=False)
+        mask_b64 = generate_synthetic_sar_png(is_mask=True)
+        
+        return {
+            "status": "success",
+            "image_path": file_path,
+            "filename": file.filename,
+            "sar_image_base64": sar_b64,
+            "mask_image_base64": mask_b64
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed processing uploaded image: {str(e)}")
 
 @app.get("/api/sar_preview")
 def get_sar_preview(image_path: str = Query("data/raw/sentinel1_sample.tif")):

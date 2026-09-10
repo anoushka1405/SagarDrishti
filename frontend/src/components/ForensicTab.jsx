@@ -12,6 +12,7 @@ export default function ForensicTab({
   loading,
   onRunAnalysis,
   onSelectImage,
+  onUploadImage,
   currentImagePath,
 }) {
   const [selectedVessel, setSelectedVessel] = useState(null);
@@ -114,6 +115,7 @@ export default function ForensicTab({
             currentImagePath={currentImagePath}
             previewData={previewData}
             onSelectImage={onSelectImage}
+            onUploadImage={onUploadImage}
             categoriesData={categoriesData}
             loading={loading}
           />

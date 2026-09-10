@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Eye, Layers, Image as ImageIcon, CheckCircle2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Eye, Layers, Image as ImageIcon, CheckCircle2, AlertTriangle, RefreshCw, Upload } from 'lucide-react';
 
-export default function SarViewer({ currentImagePath, previewData, onSelectImage, categoriesData, loading }) {
+export default function SarViewer({ currentImagePath, previewData, onSelectImage, onUploadImage, categoriesData, loading }) {
   const [selectedCategory, setSelectedCategory] = useState('Oil');
   const [selectedFile, setSelectedFile] = useState('');
 
@@ -19,10 +19,18 @@ export default function SarViewer({ currentImagePath, previewData, onSelectImage
     }
   };
 
+  const handleFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      if (onUploadImage) {
+        onUploadImage(e.target.files[0]);
+      }
+    }
+  };
+
   return (
     <div className="glass-panel rounded-2xl p-5 border border-blue-300/80 bg-white/95 shadow-md flex flex-col gap-4">
       {/* Header & Dataset Launcher Controls */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-blue-200/80 pb-4">
+      <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-3 border-b border-blue-200/80 pb-4">
         <div className="flex items-center gap-2.5">
           <Layers className="w-5 h-5 text-blue-600" />
           <h3 className="text-base font-extrabold text-blue-950 font-heading">
@@ -30,43 +38,57 @@ export default function SarViewer({ currentImagePath, previewData, onSelectImage
           </h3>
         </div>
 
-        {/* Category & File Picker */}
-        {categoriesData?.has_real_dataset && (
-          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              className="bg-blue-100/80 border border-blue-300 text-xs text-blue-950 rounded-xl px-3 py-1.5 focus:outline-none focus:border-blue-600 font-bold"
-            >
-              {Object.keys(categoriesData.categories || {}).map((cat) => (
-                <option key={cat} value={cat}>
-                  Category: {cat} ({categoriesData.categories[cat]?.length || 0})
-                </option>
-              ))}
-            </select>
+        {/* Category & File Picker + Upload Button */}
+        <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
+          {categoriesData?.categories && (
+            <>
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="bg-blue-100/80 border border-blue-300 text-xs text-blue-950 rounded-xl px-3 py-1.5 focus:outline-none focus:border-blue-600 font-bold"
+              >
+                {Object.keys(categoriesData.categories || {}).map((cat) => (
+                  <option key={cat} value={cat}>
+                    Category: {cat} ({categoriesData.categories[cat]?.length || 0})
+                  </option>
+                ))}
+              </select>
 
-            <select
-              value={selectedFile}
-              onChange={(e) => setSelectedFile(e.target.value)}
-              className="bg-blue-100/80 border border-blue-300 text-xs text-blue-950 rounded-xl px-3 py-1.5 focus:outline-none focus:border-blue-600 max-w-[180px] truncate font-bold"
-            >
-              {(categoriesData.categories[selectedCategory] || []).map((file) => (
-                <option key={file} value={file}>
-                  {file}
-                </option>
-              ))}
-            </select>
+              <select
+                value={selectedFile}
+                onChange={(e) => setSelectedFile(e.target.value)}
+                className="bg-blue-100/80 border border-blue-300 text-xs text-blue-950 rounded-xl px-3 py-1.5 focus:outline-none focus:border-blue-600 max-w-[180px] truncate font-bold"
+              >
+                {(categoriesData.categories[selectedCategory] || []).map((file) => (
+                  <option key={file} value={file}>
+                    {file}
+                  </option>
+                ))}
+              </select>
 
-            <button
-              onClick={handleApplyDatasetImage}
+              <button
+                onClick={handleApplyDatasetImage}
+                disabled={loading}
+                className="flex items-center gap-1 bg-gradient-to-r from-blue-700 via-indigo-600 to-blue-800 hover:from-blue-600 hover:to-indigo-500 text-white text-xs px-3.5 py-1.5 rounded-xl font-bold transition-all disabled:opacity-50 shadow-md shadow-blue-700/25 border border-blue-400/40"
+              >
+                {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
+                <span>Load SAR</span>
+              </button>
+            </>
+          )}
+
+          <label className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3.5 py-1.5 rounded-xl font-bold transition-all cursor-pointer shadow-md shadow-emerald-700/20 border border-emerald-500/40">
+            <Upload className="w-3.5 h-3.5" />
+            <span>Upload Image</span>
+            <input
+              type="file"
+              accept="image/*,.tif,.tiff"
+              onChange={handleFileChange}
+              className="hidden"
               disabled={loading}
-              className="flex items-center gap-1 bg-gradient-to-r from-blue-700 via-indigo-600 to-blue-800 hover:from-blue-600 hover:to-indigo-500 text-white text-xs px-3.5 py-1.5 rounded-xl font-bold transition-all disabled:opacity-50 shadow-md shadow-blue-700/25 border border-blue-400/40"
-            >
-              {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
-              <span>Load SAR</span>
-            </button>
-          </div>
-        )}
+            />
+          </label>
+        </div>
       </div>
 
       {/* Side-by-Side Image Container */}
