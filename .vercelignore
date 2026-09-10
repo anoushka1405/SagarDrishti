@@ -1,9 +1,0 @@
-src/
-models/
-data/
-tests/
-dashboard/
-*.py
-*.pth
-*.nc
-*.parquet
