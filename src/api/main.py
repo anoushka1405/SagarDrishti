@@ -105,23 +105,55 @@ def get_dataset_categories():
         "presets": True
     }
 
-def generate_synthetic_sar_png(is_mask: bool = False) -> str:
+def generate_synthetic_sar_png(tif_path: str = "", is_mask: bool = False) -> str:
     try:
         from PIL import Image, ImageDraw, ImageFilter
+        path_lower = tif_path.lower() if tif_path else ""
+        path_seed = sum(ord(c) for c in tif_path) if tif_path else 42
+        np.random.seed(path_seed % 10000)
+
+        is_no_oil = "no oil" in path_lower or "clean" in path_lower
+        is_lookalike = "lookalike" in path_lower or "algae" in path_lower
+
         if is_mask:
-            img = Image.new("L", (300, 300), 0)
-            draw = ImageDraw.Draw(img)
-            points = [(100, 120), (160, 100), (210, 140), (190, 180), (130, 200), (95, 160)]
-            draw.polygon(points, fill=255)
-            img = img.filter(ImageFilter.GaussianBlur(radius=1.5))
+            if is_no_oil or is_lookalike:
+                # No oil spill mask for clean ocean or lookalike false positives
+                img = Image.new("L", (300, 300), 0)
+            else:
+                # Sharp binary oil spill mask
+                img = Image.new("L", (300, 300), 0)
+                draw = ImageDraw.Draw(img)
+                cx, cy = 150 + (path_seed % 20 - 10), 150 + (path_seed % 30 - 15)
+                points = [
+                    (cx - 50, cy - 30), (cx + 10, cy - 45), (cx + 60, cy - 10),
+                    (cx + 45, cy + 35), (cx - 20, cy + 50), (cx - 55, cy + 15)
+                ]
+                draw.polygon(points, fill=255)
+                img = img.filter(ImageFilter.GaussianBlur(radius=1.5))
         else:
-            np.random.seed(42)
             base = np.random.normal(125, 22, (300, 300)).clip(0, 255).astype(np.uint8)
             img = Image.fromarray(base).convert("L")
             draw = ImageDraw.Draw(img)
-            points = [(100, 120), (160, 100), (210, 140), (190, 180), (130, 200), (95, 160)]
-            draw.polygon(points, fill=30)
-            img = img.filter(ImageFilter.GaussianBlur(radius=2.5))
+            
+            if is_no_oil:
+                # Clean ocean: uniform radar backscatter speckle
+                pass
+            elif is_lookalike:
+                # Lookalike algae bloom: organic feathery streaks
+                for y in range(80, 220, 15):
+                    x_start = 60 + int(np.sin(y / 20.0) * 30)
+                    draw.ellipse([x_start, y, x_start + 140, y + 12], fill=85)
+                img = img.filter(ImageFilter.GaussianBlur(radius=6.0))
+            else:
+                # Real oil spill: sharp dark backscatter patch
+                cx, cy = 150 + (path_seed % 20 - 10), 150 + (path_seed % 30 - 15)
+                points = [
+                    (cx - 50, cy - 30), (cx + 10, cy - 45), (cx + 60, cy - 10),
+                    (cx + 45, cy + 35), (cx - 20, cy + 50), (cx - 55, cy + 15)
+                ]
+                draw.polygon(points, fill=30)
+                img = img.filter(ImageFilter.GaussianBlur(radius=2.5))
+
             arr = np.array(img).astype(float)
             speckle = np.random.normal(1.0, 0.06, (300, 300))
             final = np.clip(arr * speckle, 0, 255).astype(np.uint8)
@@ -140,7 +172,7 @@ def convert_raster_to_png_base64(tif_path: str, is_mask: bool = False) -> Option
     try:
         full_path = os.path.join(WORKSPACE_ROOT, tif_path) if not os.path.isabs(tif_path) else tif_path
         if not os.path.exists(full_path):
-            return generate_synthetic_sar_png(is_mask=is_mask)
+            return generate_synthetic_sar_png(tif_path=tif_path, is_mask=is_mask)
             
         from PIL import Image
         ext = os.path.splitext(full_path)[1].lower()
@@ -173,7 +205,7 @@ def convert_raster_to_png_base64(tif_path: str, is_mask: bool = False) -> Option
         return f"data:image/png;base64,{encoded}"
     except Exception as e:
         print(f"Error rendering raster PNG preview for {tif_path}: {e}")
-        return generate_synthetic_sar_png(is_mask=is_mask)
+        return generate_synthetic_sar_png(tif_path=tif_path, is_mask=is_mask)
 
 def generate_mask_from_image(image_path: str) -> str:
     try:
@@ -235,7 +267,7 @@ def get_sar_preview(image_path: str = Query("data/raw/sentinel1_sample.tif")):
         mask_path = os.sep.join(parts)
         mask_b64 = convert_raster_to_png_base64(mask_path, is_mask=True)
     else:
-        mask_b64 = generate_synthetic_sar_png(is_mask=True)
+        mask_b64 = generate_synthetic_sar_png(tif_path=image_path, is_mask=True)
         
     return {
         "image_path": image_path,
