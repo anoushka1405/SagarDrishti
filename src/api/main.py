@@ -170,28 +170,6 @@ def generate_synthetic_sar_png(tif_path: str = "", is_mask: bool = False) -> str
 def convert_raster_to_png_base64(tif_path: str, is_mask: bool = False) -> Optional[str]:
     """Helper to convert a TIFF band or sample image into a base64 encoded PNG data URL."""
     try:
-        filename = os.path.basename(tif_path)
-        sample_dir = os.path.join(WORKSPACE_ROOT, "data", "sample_assets")
-        
-        # Check if committed real sample PNG asset exists in data/sample_assets
-        if is_mask:
-            png_name = filename.replace('.tif', '_mask.png')
-            if not png_name.endswith('.png'):
-                png_name = f"{filename}_mask.png"
-        else:
-            png_name = filename.replace('.tif', '_preview.png')
-            if not png_name.endswith('.png'):
-                png_name = f"{filename}_preview.png"
-                
-        sample_png_path = os.path.join(sample_dir, png_name)
-        if os.path.exists(sample_png_path):
-            from PIL import Image
-            img = Image.open(sample_png_path)
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
-            return f"data:image/png;base64,{encoded}"
-
         full_path = os.path.join(WORKSPACE_ROOT, tif_path) if not os.path.isabs(tif_path) else tif_path
         if os.path.exists(full_path):
             from PIL import Image
@@ -217,7 +195,26 @@ def convert_raster_to_png_base64(tif_path: str, is_mask: bool = False) -> Option
             img.save(buf, format="PNG")
             encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
             return f"data:image/png;base64,{encoded}"
-            
+
+        # If raw dataset file missing on server, map tif_path to committed real sample PNG asset in data/sample_assets
+        sample_dir = os.path.join(WORKSPACE_ROOT, "data", "sample_assets")
+        path_lower = tif_path.lower()
+        if "lookalike" in path_lower:
+            png_name = "00001_lookalike_mask.png" if is_mask else "00001_lookalike_preview.png"
+        elif "no oil" in path_lower or "no_oil" in path_lower or "clean" in path_lower:
+            png_name = "00001_no_oil_mask.png" if is_mask else "00001_no_oil_preview.png"
+        else:
+            png_name = "00001_oil_mask.png" if is_mask else "00001_oil_preview.png"
+
+        sample_png_path = os.path.join(sample_dir, png_name)
+        if os.path.exists(sample_png_path):
+            from PIL import Image
+            img = Image.open(sample_png_path)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
+            return f"data:image/png;base64,{encoded}"
+
         return generate_synthetic_sar_png(tif_path=tif_path, is_mask=is_mask)
     except Exception as e:
         print(f"Error rendering raster PNG preview for {tif_path}: {e}")
