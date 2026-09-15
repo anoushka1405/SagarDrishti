@@ -134,7 +134,7 @@ export default function App() {
           />
         )}
 
-        {activeTab === 'sandbox' && <SandboxTab />}
+        {activeTab === 'sandbox' && <SandboxTab pipelineResults={pipelineResults} />}
       </main>
 
       {/* Interactive Concept Explainer Modal */}

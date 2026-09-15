@@ -339,6 +339,7 @@ def run(image_path: str, mock_mode: bool = False) -> Dict[str, Any]:
         "age_confidence": round(age_conf * 100.0, 1),
         "estimated_origin": hindcast_results["estimated_origin"],
         "origin_uncertainty_km": round(origin_uncertainty, 2),
+        "acquisition_time": str(acq_time),
         "release_window": (str(release_start), str(release_end)),
         "hindcast_track": hindcast_results["hindcast_track"],
         "forecast_tracks": forecast_tracks,

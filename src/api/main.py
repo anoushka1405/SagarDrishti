@@ -25,6 +25,7 @@ if WORKSPACE_ROOT not in sys.path:
 from src.pipeline.run_pipeline import run as run_pipeline
 from src.scoring.proactive_risk import run_proactive_watchlist
 from src.data.synthetic_ais import generate_synthetic_vessels
+from src.data.loaders import load_wind
 from src.drift.forward_simulation import simulate_forward
 from src.drift.backward_hindcast import hindcast_origin
 from shapely.geometry import Polygon
@@ -60,6 +61,12 @@ class DriftSimRequest(BaseModel):
     wind_drift_factor: float = 0.03
     hindcast_hours: List[int] = [1, 3, 6]
     forecast_hours: List[int] = [1, 3, 6, 12]
+    # Optional forensic spill geometry — when provided, sandbox uses this spill instead of defaults
+    spill_polygon_coords: Optional[List[List[float]]] = None  # [[lon, lat], ...] polygon vertices
+    spill_centroid: Optional[List[float]] = None              # [lat, lon] fallback center
+    age_low: Optional[float] = None                           # hours
+    age_high: Optional[float] = None                          # hours
+    observation_time: Optional[str] = None                    # ISO timestamp of satellite pass
 
 @app.get("/api/health")
 def health_check():
@@ -223,21 +230,53 @@ def get_proactive_watchlist():
 
 @app.post("/api/simulate_drift")
 def simulate_drift(req: DriftSimRequest):
-    """Simulates drift using real forward_simulation + backward_hindcast physics modules."""
-    center_lat, center_lon = 18.43, 70.82
+    """Simulates drift using real forward_simulation + backward_hindcast physics modules.
+
+    When forensic spill geometry is provided (spill_polygon_coords / spill_centroid),
+    particles are initialized inside that actual spill polygon and the simulation uses
+    the forensic age range and observation time — giving the sandbox the same spill
+    data that was detected on the Forensic Analysis page.
+    """
     np.random.seed(42)
 
-    # Build a small spill polygon around center to initialize particles
-    poly = Polygon([
-        (center_lon - 0.015, center_lat - 0.010),
-        (center_lon + 0.015, center_lat - 0.010),
-        (center_lon + 0.015, center_lat + 0.010),
-        (center_lon - 0.015, center_lat + 0.010),
-    ])
+    # --- Determine spill center and polygon ---
+    use_forensic = req.spill_polygon_coords and len(req.spill_polygon_coords) >= 3
+
+    if use_forensic:
+        # Build Shapely polygon from forensic vertices (given as [lon, lat] pairs)
+        poly = Polygon(req.spill_polygon_coords)
+        centroid = poly.centroid
+        center_lat, center_lon = centroid.y, centroid.x
+    elif req.spill_centroid:
+        center_lat, center_lon = req.spill_centroid
+        # Build a small default polygon around the centroid
+        poly = Polygon([
+            (center_lon - 0.015, center_lat - 0.010),
+            (center_lon + 0.015, center_lat - 0.010),
+            (center_lon + 0.015, center_lat + 0.010),
+            (center_lon - 0.015, center_lat + 0.010),
+        ])
+    else:
+        center_lat, center_lon = 18.43, 70.82
+        poly = Polygon([
+            (center_lon - 0.015, center_lat - 0.010),
+            (center_lon + 0.015, center_lat - 0.010),
+            (center_lon + 0.015, center_lat + 0.010),
+            (center_lon - 0.015, center_lat + 0.010),
+        ])
+
     from src.drift.particle_model import initialize_particles
     particles = initialize_particles(poly, req.n_particles)
 
-    # Mock environmental data with timestamps spanning the simulation window
+    # --- Observation time & age range ---
+    observation_time = req.observation_time or "2026-08-27T01:00:00Z"
+    age_low = req.age_low if req.age_low is not None else 3.0
+    age_high = req.age_high if req.age_high is not None else 8.0
+
+    # --- Wind data: fetch real hourly wind from Open-Meteo API, fallback to static ---
+    wind = load_wind("", center_lat, center_lon, "2026-08-27")
+
+    # --- Mock currents (no free real-time gridded currents API available) ---
     max_hr = max(req.forecast_hours) if req.forecast_hours else 12
     timestamps = pd.date_range("2026-08-27T00:00:00", periods=max_hr * 4 + 1, freq="15min")
 
@@ -248,15 +287,8 @@ def simulate_drift(req: DriftSimRequest):
         "lat_grid": np.array([center_lat]),
         "lon_grid": np.array([center_lon]),
     }
-    wind = {
-        "timestamp": timestamps,
-        "u_wind": np.full(len(timestamps), 5.0),
-        "v_wind": np.full(len(timestamps), 3.0),
-        "lat_grid": np.array([center_lat]),
-        "lon_grid": np.array([center_lon]),
-    }
 
-    # Forward forecast via real physics engine
+    # --- Forward forecast via real physics engine ---
     forecast_raw = simulate_forward(
         particles, currents, wind,
         hours=tuple(req.forecast_hours),
@@ -264,13 +296,13 @@ def simulate_drift(req: DriftSimRequest):
     )
     forecast_tracks = {str(hr): pos.tolist() for hr, pos in forecast_raw.items()}
 
-    # Backward hindcast: use the +1h forecast as the "observed" slick
+    # --- Backward hindcast: use the +1h forecast as the "observed" slick ---
     obs_hour = req.forecast_hours[0] if req.forecast_hours else 1
     observed_particles = forecast_raw.get(obs_hour, particles)
     hindcast_result = hindcast_origin(
         observed_particles, currents, wind,
-        observation_time_str="2026-08-27T01:00:00Z",
-        age_range=(3.0, 8.0),
+        observation_time_str=observation_time,
+        age_range=(age_low, age_high),
         wind_drift_factor=req.wind_drift_factor,
     )
 
@@ -281,6 +313,7 @@ def simulate_drift(req: DriftSimRequest):
         "center": [center_lat, center_lon],
         "wind_drift_factor": req.wind_drift_factor,
         "n_particles": req.n_particles,
+        "used_forensic_data": use_forensic,
         "forecast_tracks": forecast_tracks,
         "hindcast": {
             "estimated_origin": [origin_lat, origin_lon],
