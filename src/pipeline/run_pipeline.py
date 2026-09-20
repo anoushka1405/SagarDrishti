@@ -314,9 +314,12 @@ def run(image_path: str, mock_mode: bool = False) -> Dict[str, Any]:
     if geom["polygon"] is not None:
         try:
             if hasattr(geom["polygon"], "exterior"):
-                spill_poly_coords = list(geom["polygon"].exterior.coords)
+                raw_coords = list(geom["polygon"].exterior.coords)
             elif hasattr(geom["polygon"], "geoms"):
-                spill_poly_coords = list(geom["polygon"].geoms[0].exterior.coords)
+                raw_coords = list(geom["polygon"].geoms[0].exterior.coords)
+            else:
+                raw_coords = []
+            spill_poly_coords = [[float(pt[1]), float(pt[0])] for pt in raw_coords]
         except Exception:
             spill_poly_coords = []
         

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Waves, Radar, ShieldAlert, FlaskConical, HelpCircle, Activity } from 'lucide-react';
+import { Waves, Radar, ShieldAlert, FlaskConical, HelpCircle, Activity, LayoutDashboard } from 'lucide-react';
+import logo from '../../public/logo.png';
 
 export default function Header({ activeTab, setActiveTab, backendStatus, onOpenHelp }) {
   return (
@@ -7,9 +8,8 @@ export default function Header({ activeTab, setActiveTab, backendStatus, onOpenH
       <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
         {/* Brand Header */}
         <div className="flex items-center gap-3.5">
-          <div className="relative flex items-center justify-center w-11 h-11 rounded-xl bg-gradient-to-br from-sky-400 via-blue-500 to-indigo-600 text-white shadow-md shadow-sky-500/30 border border-sky-300/40">
-            <Radar className="w-6 h-6 animate-spin" style={{ animationDuration: '6s' }} />
-            <div className="absolute w-2 h-2 bg-sky-200 rounded-full animate-ping" />
+          <div className="flex items-center justify-center w-12 h-12 relative">
+            <img src={logo} alt="SagarDrishti Logo" className="absolute w-[300%] h-[300%] max-w-none object-contain pointer-events-none" style={{ left: '-140%', top: '-100%' }} />
           </div>
           <div>
             <div className="flex items-center gap-2">
@@ -23,15 +23,24 @@ export default function Header({ activeTab, setActiveTab, backendStatus, onOpenH
           </div>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex items-center gap-1.5 bg-blue-900/60 p-1.5 rounded-2xl border border-blue-700/60 shadow-inner">
+        <div className="flex items-center gap-1.5 bg-blue-900/60 p-1.5 rounded-2xl border border-blue-700/60 shadow-inner overflow-x-auto">
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${activeTab === 'overview'
+              ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-md shadow-sky-500/25 border border-sky-400/40'
+              : 'text-blue-200 hover:text-white hover:bg-blue-800/50'
+              }`}
+          >
+            <LayoutDashboard className="w-4 h-4" />
+            <span>Live Monitor</span>
+          </button>
+
           <button
             onClick={() => setActiveTab('forensic')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-              activeTab === 'forensic'
-                ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-md shadow-sky-500/25 border border-sky-400/40'
-                : 'text-blue-200 hover:text-white hover:bg-blue-800/50'
-            }`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${activeTab === 'forensic'
+              ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-md shadow-sky-500/25 border border-sky-400/40'
+              : 'text-blue-200 hover:text-white hover:bg-blue-800/50'
+              }`}
           >
             <Radar className="w-4 h-4" />
             <span>Forensic Analysis</span>
@@ -39,11 +48,10 @@ export default function Header({ activeTab, setActiveTab, backendStatus, onOpenH
 
           <button
             onClick={() => setActiveTab('proactive')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all relative ${
-              activeTab === 'proactive'
-                ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-md shadow-sky-500/25 border border-sky-400/40'
-                : 'text-blue-200 hover:text-white hover:bg-blue-800/50'
-            }`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all relative ${activeTab === 'proactive'
+              ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-md shadow-sky-500/25 border border-sky-400/40'
+              : 'text-blue-200 hover:text-white hover:bg-blue-800/50'
+              }`}
           >
             <ShieldAlert className={`w-4 h-4 ${activeTab === 'proactive' ? 'text-amber-300' : 'text-amber-400'}`} />
             <span>Proactive Surveillance</span>
@@ -55,11 +63,10 @@ export default function Header({ activeTab, setActiveTab, backendStatus, onOpenH
 
           <button
             onClick={() => setActiveTab('sandbox')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
-              activeTab === 'sandbox'
-                ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-md shadow-sky-500/25 border border-sky-400/40'
-                : 'text-blue-200 hover:text-white hover:bg-blue-800/50'
-            }`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${activeTab === 'sandbox'
+              ? 'bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-md shadow-sky-500/25 border border-sky-400/40'
+              : 'text-blue-200 hover:text-white hover:bg-blue-800/50'
+              }`}
           >
             <FlaskConical className="w-4 h-4" />
             <span>Drift Sandbox</span>
@@ -69,10 +76,13 @@ export default function Header({ activeTab, setActiveTab, backendStatus, onOpenH
         {/* Right Status Actions */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-blue-900/80 border border-blue-700/80 text-xs shadow-xs">
-            <Activity className={`w-3.5 h-3.5 ${backendStatus === 'connected' ? 'text-emerald-400 animate-pulse' : 'text-rose-400'}`} />
-            <span className="text-blue-200 font-medium hidden sm:inline">Backend API:</span>
-            <span className={backendStatus === 'connected' ? 'text-sky-300 font-bold' : 'text-rose-300 font-bold'}>
-              {backendStatus === 'connected' ? 'FastAPI Online' : 'Connecting...'}
+            <span className="flex h-2 w-2 relative">
+              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${backendStatus === 'connected' ? 'bg-emerald-400' : 'bg-rose-400'}`}></span>
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${backendStatus === 'connected' ? 'bg-emerald-400' : 'bg-rose-400'}`}></span>
+            </span>
+            <span className="text-blue-200 font-medium hidden sm:inline ml-1">Monitoring:</span>
+            <span className={backendStatus === 'connected' ? 'text-emerald-300 font-bold' : 'text-rose-300 font-bold'}>
+              {backendStatus === 'connected' ? 'Active' : 'Connecting...'}
             </span>
           </div>
 

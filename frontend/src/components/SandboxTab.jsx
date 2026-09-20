@@ -1,27 +1,41 @@
 import React, { useState } from 'react';
-import { FlaskConical, Sliders, Play, Wind, Compass, RefreshCw, AlertCircle, Target } from 'lucide-react';
+import { FlaskConical, Sliders, Play, Wind, Compass, RefreshCw, AlertCircle, Target, Database } from 'lucide-react';
 import { MapContainer, TileLayer, Circle, Polyline, CircleMarker, Tooltip } from 'react-leaflet';
 
-export default function SandboxTab() {
+export default function SandboxTab({ pipelineResults }) {
   const [particlesCount, setParticlesCount] = useState(500);
   const [windDriftFactor, setWindDriftFactor] = useState(0.03);
   const [loading, setLoading] = useState(false);
   const [simulationData, setSimulationData] = useState(null);
   const [error, setError] = useState(null);
 
+  const hasForensicData = pipelineResults?.spill_detected && pipelineResults?.spill_polygon_coords?.length >= 3;
+
   const handleRunSimulation = async () => {
     setLoading(true);
     setError(null);
     try {
+      const body = {
+        n_particles: particlesCount,
+        wind_drift_factor: windDriftFactor,
+        hindcast_hours: [1, 3, 6],
+        forecast_hours: [1, 3, 6, 12],
+      };
+
+      // When forensic spill data is available, send it so the sandbox
+      // simulates the SAME spill detected on the Forensic Analysis page
+      if (hasForensicData) {
+        body.spill_polygon_coords = pipelineResults.spill_polygon_coords;
+        body.spill_centroid = pipelineResults.centroid;
+        body.age_low = pipelineResults.age_low;
+        body.age_high = pipelineResults.age_high;
+        body.observation_time = pipelineResults.acquisition_time || pipelineResults.release_window?.[1] || null;
+      }
+
       const res = await fetch('/api/simulate_drift', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          n_particles: particlesCount,
-          wind_drift_factor: windDriftFactor,
-          hindcast_hours: [1, 3, 6],
-          forecast_hours: [1, 3, 6, 12],
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => ({ detail: res.statusText }));
@@ -37,7 +51,8 @@ export default function SandboxTab() {
     }
   };
 
-  const center = simulationData?.center || [18.43, 70.82];
+  const center = simulationData?.center
+    || (hasForensicData ? pipelineResults.centroid : [18.43, 70.82]);
   const forecastTracks = simulationData?.forecast_tracks || {};
   const hindcast = simulationData?.hindcast || null;
 
@@ -65,6 +80,14 @@ export default function SandboxTab() {
           <p className="text-xs text-blue-900 max-w-3xl font-medium">
             Experiment with wind drift coupling factors, particle density, and surface ocean current dynamics to model slick deformation.
           </p>
+          {hasForensicData && (
+            <div className="flex items-center gap-1.5 mt-1">
+              <Database className="w-3 h-3 text-emerald-600" />
+              <span className="text-[11px] text-emerald-800 font-semibold">
+                Using spill data from Forensic Analysis — {pipelineResults.area_km2} km², origin ({pipelineResults.estimated_origin?.[0]?.toFixed(2)}, {pipelineResults.estimated_origin?.[1]?.toFixed(2)})
+              </span>
+            </div>
+          )}
         </div>
 
         <button
@@ -155,7 +178,35 @@ export default function SandboxTab() {
             </div>
           </div>
 
-          {/* Hindcast Info Panel */}
+          {/* Forensic Spill Info Panel */}
+          {hasForensicData && (
+            <div className="glass-panel p-4 rounded-2xl border border-emerald-200/90 bg-emerald-50/80 shadow-md">
+              <h4 className="text-xs font-bold text-emerald-800 flex items-center gap-1.5 mb-2 font-heading">
+                <Database className="w-3.5 h-3.5 text-emerald-600" />
+                Forensic Spill Source
+              </h4>
+              <div className="grid grid-cols-2 gap-3 text-[11px]">
+                <div className="bg-white/70 rounded-xl p-2.5 border border-emerald-200">
+                  <span className="text-emerald-900/80 block font-medium">Area</span>
+                  <span className="text-emerald-950 font-mono font-bold">{pipelineResults.area_km2} km²</span>
+                </div>
+                <div className="bg-white/70 rounded-xl p-2.5 border border-emerald-200">
+                  <span className="text-emerald-900/80 block font-medium">Age Range</span>
+                  <span className="text-emerald-950 font-mono font-bold">{pipelineResults.age_low}–{pipelineResults.age_high}h</span>
+                </div>
+                <div className="bg-white/70 rounded-xl p-2.5 border border-emerald-200">
+                  <span className="text-emerald-900/80 block font-medium">Origin Lat</span>
+                  <span className="text-emerald-950 font-mono font-bold">{pipelineResults.estimated_origin?.[0]?.toFixed(4)}</span>
+                </div>
+                <div className="bg-white/70 rounded-xl p-2.5 border border-emerald-200">
+                  <span className="text-emerald-900/80 block font-medium">Origin Lon</span>
+                  <span className="text-emerald-950 font-mono font-bold">{pipelineResults.estimated_origin?.[1]?.toFixed(4)}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Hindcast Info Panel (from simulation result) */}
           {hindcast && (
             <div className="glass-panel p-4 rounded-2xl border border-blue-200/90 bg-white/95 shadow-md">
               <h4 className="text-xs font-bold text-amber-800 flex items-center gap-1.5 mb-2 font-heading">
@@ -201,9 +252,27 @@ export default function SandboxTab() {
           <div className="relative w-full h-[500px] rounded-2xl overflow-hidden border border-blue-200 glass-panel shadow-sm">
             <MapContainer center={center} zoom={9} scrollWheelZoom={true} className="w-full h-full">
               <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                attribution='&copy; CARTO Voyager'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
+
+              {/* Forensic spill polygon outline (when using forensic data) */}
+              {hasForensicData && (
+                <>
+                  {(() => {
+                    const coords = pipelineResults.spill_polygon_coords;
+                    if (!coords || coords.length < 3) return null;
+                    // The coords from backend are already [lat, lon]
+                    const positions = coords.map(c => [c[0], c[1]]);
+                    return (
+                      <Polyline
+                        positions={positions}
+                        pathOptions={{ color: '#e11d48', weight: 2, dashArray: '6 4', opacity: 0.7 }}
+                      />
+                    );
+                  })()}
+                </>
+              )}
 
               {/* Forecast Particles */}
               {Object.entries(forecastTracks).map(([hr, pts]) => {

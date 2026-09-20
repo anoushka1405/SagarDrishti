@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ShieldAlert, MapPin, AlertCircle, CheckCircle2, Radio, Compass, RefreshCw } from 'lucide-react';
 import { MapContainer, TileLayer, Circle, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
@@ -20,9 +20,25 @@ function createSanctuaryVesselIcon(score) {
   });
 }
 
-export default function ProactiveTab({ proactiveData, loading, onRefresh }) {
+export default function ProactiveTab({ proactiveData, loading, onRefresh, selectedVesselMmsi }) {
   const sensitiveZones = proactiveData?.sensitive_zones || [];
   const watchlist = proactiveData?.watchlist || [];
+  
+  const scrollContainerRef = useRef(null);
+
+  useEffect(() => {
+    if (selectedVesselMmsi && scrollContainerRef.current) {
+      const el = document.getElementById(`vessel-alert-${selectedVesselMmsi}`);
+      if (el) {
+        setTimeout(() => {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Add a temporary highlight effect
+          el.classList.add('ring-4', 'ring-sky-400');
+          setTimeout(() => el.classList.remove('ring-4', 'ring-sky-400'), 2000);
+        }, 100);
+      }
+    }
+  }, [selectedVesselMmsi, watchlist]);
 
   return (
     <div className="space-y-6">
@@ -167,7 +183,7 @@ export default function ProactiveTab({ proactiveData, loading, onRefresh }) {
               </span>
             </div>
 
-            <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+            <div ref={scrollContainerRef} className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
               {watchlist.map((item) => {
                 const score = item.risk_score;
                 const isCritical = score >= 50;
@@ -175,7 +191,8 @@ export default function ProactiveTab({ proactiveData, loading, onRefresh }) {
                 return (
                   <div
                     key={item.mmsi}
-                    className={`glass-panel rounded-2xl p-4 border transition-all ${isCritical
+                    id={`vessel-alert-${item.mmsi}`}
+                    className={`glass-panel rounded-2xl p-4 border transition-all duration-700 ${isCritical
                         ? 'border-rose-300 bg-rose-50/70 shadow-xs'
                         : 'border-blue-200 bg-gradient-to-br from-white to-blue-50/60'
                       }`}

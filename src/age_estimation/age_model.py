@@ -87,8 +87,8 @@ def estimate_spill_age(
         uncertainty_factor *= 1.5
         data_quality_factor = 0.7
 
-    age_low = max(0.5, age_hours / (1.2 * uncertainty_factor))
-    age_high = min(72.0, age_hours * (1.2 * uncertainty_factor))
+    age_low = max(0.5, age_hours - (1.5 * uncertainty_factor))
+    age_high = min(72.0, age_hours + (2.0 * uncertainty_factor))
     
     # Confidence score [0, 1]
     confidence = (0.5 + 0.4 * compactness) * data_quality_factor

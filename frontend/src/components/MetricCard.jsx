@@ -37,26 +37,26 @@ export default function MetricCard({ title, value, subtext, icon: Icon, color = 
   const currentTheme = colorMap[color] || colorMap.blue;
 
   return (
-    <div className={`glass-panel p-4.5 rounded-2xl border ${currentTheme.border} flex flex-col justify-between gap-3 shadow-md relative overflow-hidden group bg-gradient-to-br from-white via-blue-50/60 to-sky-100/60 hover:shadow-lg hover:border-blue-400 transition-all duration-300`}>
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-bold text-blue-950 font-heading">{title}</span>
+    <div className={`glass-panel p-3.5 sm:p-4 rounded-2xl border ${currentTheme.border} flex flex-col justify-between gap-2.5 shadow-md relative overflow-hidden group bg-gradient-to-br from-white via-blue-50/60 to-sky-100/60 hover:shadow-lg hover:border-blue-400 transition-all duration-300 min-w-0 w-full`}>
+      <div className="flex items-center justify-between gap-1.5 min-w-0">
+        <span className="text-[11px] sm:text-xs font-bold text-blue-950 font-heading truncate leading-tight">{title}</span>
         {Icon && (
-          <div className={`p-2 rounded-xl ${currentTheme.iconBg} shadow-xs`}>
-            <Icon className="w-4 h-4" />
+          <div className={`p-1.5 rounded-xl ${currentTheme.iconBg} shadow-2xs shrink-0`}>
+            <Icon className="w-3.5 h-3.5" />
           </div>
         )}
       </div>
 
-      <div>
-        <div className={`text-2xl font-extrabold font-heading tracking-tight ${currentTheme.text}`}>
+      <div className="min-w-0">
+        <div className={`text-base sm:text-lg lg:text-xl font-extrabold font-heading tracking-tight ${currentTheme.text} truncate`}>
           {value}
         </div>
-        {subtext && <div className="text-[11px] text-blue-800/80 font-medium mt-0.5">{subtext}</div>}
+        {subtext && <div className="text-[10px] sm:text-[11px] text-blue-900/80 font-medium mt-0.5 truncate">{subtext}</div>}
       </div>
 
       {badge && (
-        <div className="mt-1">
-          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100/80 border border-blue-300/80 text-blue-950">
+        <div className="mt-0.5 min-w-0">
+          <span className="text-[9px] sm:text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100/90 border border-blue-300/80 text-blue-950 inline-block truncate max-w-full">
             {badge}
           </span>
         </div>

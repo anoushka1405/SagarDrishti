@@ -26,7 +26,7 @@ export default function ForensicTab({
     age_high: 6.0,
     age_confidence: 82,
     centroid: [18.43, 70.82],
-    estimated_origin: [18.43, 70.82],
+    estimated_origin: [18.37, 70.73],
     origin_uncertainty_km: 4.5,
     spill_polygon_coords: [
       [18.445, 70.805],
@@ -111,20 +111,33 @@ export default function ForensicTab({
         body: JSON.stringify({
           image_path: currentImagePath || 'data/raw/sentinel1_sample.tif',
           mock_mode: true,
+          pipeline_results: results,
         }),
       });
-      if (!res.ok) throw new Error('Export failed');
+
+      const contentType = res.headers.get('content-type') || '';
+      if (!res.ok || !contentType.includes('application/pdf')) {
+        const errText = await res.text();
+        console.error('Export report server error response:', errText);
+        throw new Error('Backend failed to return a valid PDF document.');
+      }
+
       const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
+      const pdfBlob = new Blob([blob], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(pdfBlob);
       const a = document.createElement('a');
+      a.style.display = 'none';
       a.href = url;
       a.download = 'sagardrishti_report.pdf';
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      setTimeout(() => {
+        if (document.body.contains(a)) document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }, 2000);
     } catch (err) {
       console.error('Export error:', err);
+      alert('Failed to generate PDF report: ' + err.message);
     } finally {
       setDownloading(false);
     }
@@ -206,7 +219,7 @@ export default function ForensicTab({
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-blue-950 font-heading flex items-center gap-2">
                 <Compass className="w-4 h-4 text-blue-700" />
-                Interactive Maritime GIS Layer Plot
+                Maritime GIS Layer Plot
               </h3>
               <span className="text-[11px] text-blue-900/80 font-medium">
                 OpenStreetMap Tiles • Hydrodynamic Drift Layer

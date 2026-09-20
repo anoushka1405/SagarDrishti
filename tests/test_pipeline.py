@@ -78,3 +78,14 @@ def test_proactive_risk_scoring():
     assert alert["watchlist"] is True
     assert len(alert["evidence"]) > 0
     assert any("Unexpected stop" in ev for ev in alert["evidence"]) or any("signal gap" in ev for ev in alert["evidence"]) or any("gap" in ev.lower() for ev in alert["evidence"])
+
+def test_export_pdf_report():
+    """Verify forensic PDF report generation returns a valid PDF document."""
+    from src.api.main import export_report, AnalyzeRequest
+    req = AnalyzeRequest(mock_mode=True)
+    res = export_report(req)
+    assert res is not None
+    assert res.media_type == "application/pdf"
+    assert len(res.body) > 1000
+    assert res.body.startswith(b"%PDF")
+

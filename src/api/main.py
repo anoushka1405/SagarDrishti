@@ -23,7 +23,7 @@ from pydantic import BaseModel
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 # Ensure workspace root is in sys.path
@@ -35,6 +35,7 @@ from src.scoring.proactive_risk import run_proactive_watchlist
 from src.data.synthetic_ais import generate_synthetic_vessels
 from src.drift.forward_simulation import simulate_forward
 from src.drift.backward_hindcast import hindcast_origin
+from src.pipeline.run_pipeline import run as run_pipeline
 from shapely.geometry import Polygon
 
 app = FastAPI(
@@ -62,12 +63,18 @@ SENSITIVE_ZONES = [
 class AnalyzeRequest(BaseModel):
     image_path: Optional[str] = "data/raw/sentinel1_sample.tif"
     mock_mode: bool = False
+    pipeline_results: Optional[Dict[str, Any]] = None
 
 class DriftSimRequest(BaseModel):
     n_particles: int = 500
     wind_drift_factor: float = 0.03
     hindcast_hours: List[int] = [1, 3, 6]
     forecast_hours: List[int] = [1, 3, 6, 12]
+    spill_polygon_coords: Optional[List[List[float]]] = None
+    spill_centroid: Optional[List[float]] = None
+    age_low: Optional[float] = None
+    age_high: Optional[float] = None
+    observation_time: Optional[str] = None
 
 @app.get("/api/health")
 def health_check():
@@ -367,16 +374,26 @@ def get_proactive_watchlist():
 @app.post("/api/simulate_drift")
 def simulate_drift(req: DriftSimRequest):
     """Simulates drift using real forward_simulation + backward_hindcast physics modules."""
-    center_lat, center_lon = 18.43, 70.82
+    if req.spill_centroid:
+        center_lat, center_lon = req.spill_centroid
+    else:
+        center_lat, center_lon = 18.43, 70.82
+
     np.random.seed(42)
 
-    # Build a small spill polygon around center to initialize particles
-    poly = Polygon([
-        (center_lon - 0.015, center_lat - 0.010),
-        (center_lon + 0.015, center_lat - 0.010),
-        (center_lon + 0.015, center_lat + 0.010),
-        (center_lon - 0.015, center_lat + 0.010),
-    ])
+    if req.spill_polygon_coords:
+        # Frontend provides [lat, lon], Shapely needs [x, y] -> [lon, lat]
+        coords = [(pt[1], pt[0]) for pt in req.spill_polygon_coords]
+        poly = Polygon(coords)
+    else:
+        # Build a small spill polygon around center to initialize particles
+        poly = Polygon([
+            (center_lon - 0.015, center_lat - 0.010),
+            (center_lon + 0.015, center_lat - 0.010),
+            (center_lon + 0.015, center_lat + 0.010),
+            (center_lon - 0.015, center_lat + 0.010),
+        ])
+
     from src.drift.particle_model import initialize_particles
     particles = initialize_particles(poly, req.n_particles)
 
@@ -410,10 +427,15 @@ def simulate_drift(req: DriftSimRequest):
     # Backward hindcast: use the +1h forecast as the "observed" slick
     obs_hour = req.forecast_hours[0] if req.forecast_hours else 1
     observed_particles = forecast_raw.get(obs_hour, particles)
+    
+    age_low = req.age_low if req.age_low is not None else 3.0
+    age_high = req.age_high if req.age_high is not None else 8.0
+    obs_time_str = req.observation_time if req.observation_time else "2026-08-27T01:00:00Z"
+    
     hindcast_result = hindcast_origin(
         observed_particles, currents, wind,
-        observation_time_str="2026-08-27T01:00:00Z",
-        age_range=(3.0, 8.0),
+        observation_time_str=obs_time_str,
+        age_range=(age_low, age_high),
         wind_drift_factor=req.wind_drift_factor,
     )
 
@@ -436,17 +458,43 @@ def simulate_drift(req: DriftSimRequest):
         },
     }
 
-@app.post("/api/export_report")
-def export_report(req: AnalyzeRequest):
+def clean_pdf_text(text: Any) -> str:
+    """Safely converts unicode strings into latin-1 compatible text for FPDF."""
+    if text is None:
+        return ""
+    s = str(text)
+    replacements = {
+        "•": "-",
+        "±": "+/-",
+        "°": " deg",
+        "²": "2",
+        "³": "3",
+        "—": "-",
+        "–": "-",
+        "’": "'",
+        "“": '"',
+        "”": '"',
+    }
+    for k, v in replacements.items():
+        s = s.replace(k, v)
+    return s.encode("latin-1", "replace").decode("latin-1")
+
+@app.api_route("/api/export_report", methods=["GET", "POST"])
+def export_report(req: Optional[AnalyzeRequest] = None):
     """Generates a forensic PDF report from pipeline results."""
     try:
         from fpdf import FPDF
 
-        full_path = req.image_path
-        if full_path and not os.path.isabs(full_path):
-            full_path = os.path.join(WORKSPACE_ROOT, req.image_path)
+        if req is None:
+            req = AnalyzeRequest(mock_mode=True)
 
-        result = run_pipeline(full_path, mock_mode=req.mock_mode)
+        if req.pipeline_results:
+            result = req.pipeline_results
+        else:
+            full_path = req.image_path or "data/raw/sentinel1_sample.tif"
+            if full_path and not os.path.isabs(full_path):
+                full_path = os.path.join(WORKSPACE_ROOT, full_path)
+            result = run_pipeline(full_path, mock_mode=req.mock_mode)
 
         pdf = FPDF()
         pdf.set_auto_page_break(auto=True, margin=15)
@@ -454,10 +502,10 @@ def export_report(req: AnalyzeRequest):
 
         # Title
         pdf.set_font("Helvetica", "B", 18)
-        pdf.cell(0, 12, "SagarDrishti Forensic Report", new_x="LMARGIN", new_y="NEXT", align="C")
+        pdf.cell(0, 12, clean_pdf_text("SagarDrishti Forensic Report"), new_x="LMARGIN", new_y="NEXT", align="C")
         pdf.set_font("Helvetica", "", 10)
         pdf.set_text_color(120, 120, 120)
-        pdf.cell(0, 6, "Automated Satellite Oil Spill Detection & Vessel Attribution", new_x="LMARGIN", new_y="NEXT", align="C")
+        pdf.cell(0, 6, clean_pdf_text("Automated Satellite Oil Spill Detection & Vessel Attribution"), new_x="LMARGIN", new_y="NEXT", align="C")
         pdf.ln(4)
 
         pdf.set_draw_color(200, 200, 200)
@@ -468,7 +516,7 @@ def export_report(req: AnalyzeRequest):
 
         # Section: Detection Summary
         pdf.set_font("Helvetica", "B", 13)
-        pdf.cell(0, 8, "1. Detection Summary", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 8, clean_pdf_text("1. Detection Summary"), new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("Helvetica", "", 11)
         rows = [
             ("Spill Detected", "Yes" if result.get("spill_detected") else "No"),
@@ -478,14 +526,14 @@ def export_report(req: AnalyzeRequest):
         ]
         for label, val in rows:
             pdf.set_font("Helvetica", "B", 11)
-            pdf.cell(55, 7, label + ":", new_x="END")
+            pdf.cell(55, 7, clean_pdf_text(label + ":"), new_x="END")
             pdf.set_font("Helvetica", "", 11)
-            pdf.cell(0, 7, val, new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 7, clean_pdf_text(val), new_x="LMARGIN", new_y="NEXT")
         pdf.ln(4)
 
         # Section: Origin & Drift
         pdf.set_font("Helvetica", "B", 13)
-        pdf.cell(0, 8, "2. Origin & Drift Analysis", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 8, clean_pdf_text("2. Origin & Drift Analysis"), new_x="LMARGIN", new_y="NEXT")
         pdf.set_font("Helvetica", "", 11)
         origin = result.get("estimated_origin", [0, 0])
         origin_rows = [
@@ -496,44 +544,44 @@ def export_report(req: AnalyzeRequest):
         ]
         for label, val in origin_rows:
             pdf.set_font("Helvetica", "B", 11)
-            pdf.cell(55, 7, label + ":", new_x="END")
+            pdf.cell(55, 7, clean_pdf_text(label + ":"), new_x="END")
             pdf.set_font("Helvetica", "", 11)
-            pdf.cell(0, 7, val, new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 7, clean_pdf_text(val), new_x="LMARGIN", new_y="NEXT")
 
         release_window = result.get("release_window")
         if release_window:
             pdf.set_font("Helvetica", "B", 11)
-            pdf.cell(55, 7, "Release Window:", new_x="END")
+            pdf.cell(55, 7, clean_pdf_text("Release Window:"), new_x="END")
             pdf.set_font("Helvetica", "", 11)
-            pdf.cell(0, 7, f"{release_window[0]} to {release_window[1]}", new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 7, clean_pdf_text(f"{release_window[0]} to {release_window[1]}"), new_x="LMARGIN", new_y="NEXT")
         pdf.ln(4)
 
         # Section: Suspect Vessel Rankings
         vessels = result.get("ranked_vessels", [])
         if vessels:
             pdf.set_font("Helvetica", "B", 13)
-            pdf.cell(0, 8, "3. Suspect Vessel Rankings", new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 8, clean_pdf_text("3. Suspect Vessel Rankings"), new_x="LMARGIN", new_y="NEXT")
             pdf.set_font("Helvetica", "", 10)
 
             for i, v in enumerate(vessels[:5], 1):
                 pdf.set_font("Helvetica", "B", 11)
                 score = v.get("attribution_score", 0)
                 pdf.cell(0, 7,
-                    f"#{i}  {v.get('mmsi', 'N/A')}  ({v.get('vessel_type', 'Unknown')})  Score: {score}/100  [{v.get('confidence_level', '')}]",
+                    clean_pdf_text(f"#{i}  {v.get('mmsi', 'N/A')}  ({v.get('vessel_type', 'Unknown')})  Score: {score}/100  [{v.get('confidence_level', '')}]"),
                     new_x="LMARGIN", new_y="NEXT")
                 pdf.set_font("Helvetica", "", 10)
                 pdf.cell(0, 6,
-                    f"    Closest Approach: {v.get('closest_distance_km', 0)} km  |  Time Offset: {v.get('time_delta_hours', 0)} hrs",
+                    clean_pdf_text(f"    Closest Approach: {v.get('closest_distance_km', 0)} km  |  Time Offset: {v.get('time_delta_hours', 0)} hrs"),
                     new_x="LMARGIN", new_y="NEXT")
                 for ev in v.get("evidence", [])[:3]:
                     pdf.set_x(15)
-                    pdf.cell(0, 5, f"  - {ev}", new_x="LMARGIN", new_y="NEXT")
+                    pdf.cell(0, 5, clean_pdf_text(f"  - {ev}"), new_x="LMARGIN", new_y="NEXT")
                 pdf.ln(2)
         else:
             pdf.set_font("Helvetica", "B", 13)
-            pdf.cell(0, 8, "3. Suspect Vessel Rankings", new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 8, clean_pdf_text("3. Suspect Vessel Rankings"), new_x="LMARGIN", new_y="NEXT")
             pdf.set_font("Helvetica", "", 11)
-            pdf.cell(0, 7, "No suspect vessels identified.", new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 7, clean_pdf_text("No suspect vessels identified."), new_x="LMARGIN", new_y="NEXT")
 
         # Footer
         pdf.ln(6)
@@ -542,18 +590,22 @@ def export_report(req: AnalyzeRequest):
         pdf.ln(3)
         pdf.set_font("Helvetica", "I", 9)
         pdf.set_text_color(140, 140, 140)
-        pdf.cell(0, 5, "Generated by SagarDrishti Marine Intelligence Platform", new_x="LMARGIN", new_y="NEXT", align="C")
+        pdf.cell(0, 5, clean_pdf_text("Generated by SagarDrishti Marine Intelligence Platform"), new_x="LMARGIN", new_y="NEXT", align="C")
 
-        pdf_buf = io.BytesIO()
-        pdf.output(pdf_buf)
-        pdf_buf.seek(0)
+        pdf_bytes = bytes(pdf.output())
 
-        return StreamingResponse(
-            pdf_buf,
+        return Response(
+            content=pdf_bytes,
             media_type="application/pdf",
-            headers={"Content-Disposition": "attachment; filename=sagardrishti_report.pdf"},
+            headers={
+                "Content-Disposition": 'attachment; filename="sagardrishti_report.pdf"',
+                "Content-Type": "application/pdf",
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            },
         )
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Report generation error: {str(e)}")
 
 # Mount compiled React frontend static files if built (for Render deployment)

@@ -43,6 +43,15 @@ export default function GISMap({ pipelineResults, onSelectVessel, selectedVessel
   const rankedVessels = pipelineResults?.ranked_vessels || [];
   const forecastTracks = pipelineResults?.forecast_tracks || {};
 
+  // Normalize polygon coords to always be [lat, lon]
+  const formattedPolygonCoords = (polygonCoords || []).map((pt) => {
+    if (Array.isArray(pt) && pt.length >= 2) {
+      if (Number(pt[0]) > 50) return [Number(pt[1]), Number(pt[0])];
+      return [Number(pt[0]), Number(pt[1])];
+    }
+    return pt;
+  });
+
   // Color palette for forecast particle hours (Ocean Blue parallel gradient accents)
   const forecastColors = {
     '1': '#0d9488',
@@ -109,16 +118,27 @@ export default function GISMap({ pipelineResults, onSelectVessel, selectedVessel
         />
 
         {/* Detected Spill Polygon Boundary */}
-        {polygonCoords.length > 0 && (
+        {formattedPolygonCoords.length > 0 && (
           <Polygon
-            positions={polygonCoords}
+            positions={formattedPolygonCoords}
             pathOptions={{
-              color: '#e11d48',
-              weight: 2.5,
-              fillColor: '#f43f5e',
-              fillOpacity: 0.5,
+              color: '#f43f5e',
+              weight: 3.5,
+              fillColor: '#e11d48',
+              fillOpacity: 0.65,
             }}
-          />
+          >
+            <Popup>
+              <div className="p-1 text-slate-800 font-sans">
+                <div className="font-bold text-rose-700 text-xs font-heading">
+                  Detected Oil Spill Boundary
+                </div>
+                <div className="text-[11px] text-slate-700 font-mono mt-1">
+                  Centroid: {centroid[0]?.toFixed(4)} N, {centroid[1]?.toFixed(4)} E
+                </div>
+              </div>
+            </Popup>
+          </Polygon>
         )}
 
         {/* Estimated Spill Origin Uncertainty Radius Circle */}

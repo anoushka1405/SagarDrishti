@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+::selection {
+  background-color: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+::-moz-selection {
+  background-color: #1d4ed8 !important;
+  color: #ffffff !important;
+}
+
 @layer base {
   body {
     font-family: 'Inter', sans-serif;

@@ -3,10 +3,12 @@ import Header from './components/Header';
 import ForensicTab from './components/ForensicTab';
 import ProactiveTab from './components/ProactiveTab';
 import SandboxTab from './components/SandboxTab';
+import OverviewTab from './components/OverviewTab';
 import HelpModal from './components/HelpModal';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('forensic');
+  const [activeTab, setActiveTab] = useState('overview');
+  const [selectedVesselMmsi, setSelectedVesselMmsi] = useState(null);
   const [currentImagePath, setCurrentImagePath] = useState('data/raw/sentinel1_sample.tif');
   const [pipelineResults, setPipelineResults] = useState(null);
   const [previewData, setPreviewData] = useState(null);
@@ -159,6 +161,16 @@ export default function App() {
     }
   };
 
+  const handleOverviewSpillSelect = (imagePath) => {
+    runAnalysis(imagePath, false);
+    setActiveTab('forensic');
+  };
+
+  const handleOverviewVesselSelect = (mmsi) => {
+    setSelectedVesselMmsi(mmsi);
+    setActiveTab('proactive');
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 font-sans pb-12">
       {/* Header */}
@@ -171,6 +183,15 @@ export default function App() {
 
       {/* Main Page Container */}
       <main className="max-w-7xl mx-auto px-4 lg:px-8 flex-1 w-full">
+        {activeTab === 'overview' && (
+          <OverviewTab
+            categoriesData={categoriesData}
+            proactiveData={proactiveData}
+            onSelectSpill={handleOverviewSpillSelect}
+            onSelectVessel={handleOverviewVesselSelect}
+          />
+        )}
+
         {activeTab === 'forensic' && (
           <ForensicTab
             pipelineResults={pipelineResults}
@@ -189,10 +210,11 @@ export default function App() {
             proactiveData={proactiveData}
             loading={loading}
             onRefresh={fetchProactiveWatchlist}
+            selectedVesselMmsi={selectedVesselMmsi}
           />
         )}
 
-        {activeTab === 'sandbox' && <SandboxTab />}
+        {activeTab === 'sandbox' && <SandboxTab pipelineResults={pipelineResults} />}
       </main>
 
       {/* Interactive Concept Explainer Modal */}
