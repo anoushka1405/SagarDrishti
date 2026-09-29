@@ -5,6 +5,8 @@ import GISMap from './GISMap';
 import MetricCard from './MetricCard';
 import VesselCard from './VesselCard';
 
+import { generateForensicPdfReport } from '../utils/generatePdfReport';
+
 export default function ForensicTab({
   pipelineResults,
   previewData,
@@ -105,41 +107,13 @@ export default function ForensicTab({
   const handleExportReport = async () => {
     setDownloading(true);
     try {
-      const res = await fetch('/api/export_report', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image_path: currentImagePath || 'data/raw/sentinel1_sample.tif',
-          mock_mode: true,
-          pipeline_results: results,
-        }),
-      });
-
-      const contentType = res.headers.get('content-type') || '';
-      if (!res.ok || !contentType.includes('application/pdf')) {
-        const errText = await res.text();
-        console.error('Export report server error response:', errText);
-        throw new Error('Backend failed to return a valid PDF document.');
-      }
-
-      const blob = await res.blob();
-      const pdfBlob = new Blob([blob], { type: 'application/pdf' });
-      const url = window.URL.createObjectURL(pdfBlob);
-      const a = document.createElement('a');
-      a.style.display = 'none';
-      a.href = url;
-      a.download = 'sagardrishti_report.pdf';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        if (document.body.contains(a)) document.body.removeChild(a);
-        window.URL.revokeObjectURL(url);
-      }, 2000);
+      // Generate crisp vector PDF report directly in browser
+      generateForensicPdfReport(results, currentImagePath);
     } catch (err) {
       console.error('Export error:', err);
       alert('Failed to generate PDF report: ' + err.message);
     } finally {
-      setDownloading(false);
+      setTimeout(() => setDownloading(false), 500);
     }
   };
 
