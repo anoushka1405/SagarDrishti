@@ -27,6 +27,21 @@ export default function SarViewer({ currentImagePath, previewData, onSelectImage
     }
   };
 
+  const getCategoryDefaultSar = (cat) => {
+    if (cat === 'Lookalike') return '/sample_assets/00001_lookalike_preview.png';
+    if (cat === 'No oil') return '/sample_assets/00001_no_oil_preview.png';
+    return '/sample_assets/00001_oil_preview.png';
+  };
+
+  const getCategoryDefaultMask = (cat) => {
+    if (cat === 'Lookalike') return '/sample_assets/00001_lookalike_mask.png';
+    if (cat === 'No oil') return '/sample_assets/00001_no_oil_mask.png';
+    return '/sample_assets/00001_oil_mask.png';
+  };
+
+  const sarImgSrc = previewData?.sar_image_base64 || getCategoryDefaultSar(selectedCategory);
+  const maskImgSrc = previewData?.mask_image_base64 || getCategoryDefaultMask(selectedCategory);
+
   return (
     <div className="glass-panel rounded-2xl p-5 border border-blue-300/80 bg-white/95 shadow-md flex flex-col gap-4">
       {/* Header & Dataset Launcher Controls */}
@@ -101,9 +116,9 @@ export default function SarViewer({ currentImagePath, previewData, onSelectImage
           </div>
 
           <div className="relative aspect-square rounded-xl overflow-hidden bg-slate-900 border border-blue-200 flex items-center justify-center group shadow-inner">
-            {previewData?.sar_image_base64 ? (
+            {sarImgSrc ? (
               <img
-                src={previewData.sar_image_base64}
+                src={sarImgSrc}
                 alt="SAR VV Band"
                 className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
               />
@@ -128,9 +143,9 @@ export default function SarViewer({ currentImagePath, previewData, onSelectImage
           </div>
 
           <div className="relative aspect-square rounded-xl overflow-hidden bg-slate-900 border border-blue-200 flex items-center justify-center group shadow-inner">
-            {previewData?.mask_image_base64 ? (
+            {maskImgSrc ? (
               <img
-                src={previewData.mask_image_base64}
+                src={maskImgSrc}
                 alt="Segmentation Mask"
                 className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105 filter hue-rotate-180 brightness-110"
               />

@@ -287,7 +287,7 @@ def get_sar_preview(image_path: str = Query("data/raw/sentinel1_sample.tif")):
         mask_path = os.sep.join(parts)
         mask_b64 = convert_raster_to_png_base64(mask_path, is_mask=True)
     else:
-        mask_b64 = generate_synthetic_sar_png(tif_path=image_path, is_mask=True)
+        mask_b64 = convert_raster_to_png_base64(image_path, is_mask=True)
         
     return {
         "image_path": image_path,
@@ -354,11 +354,11 @@ def get_proactive_watchlist():
     
     watchlist = run_proactive_watchlist(vessel_positions, trajectories, SENSITIVE_ZONES)
     
-    # Enrich watchlist entries with vessel details
+    # Enrich watchlist entries with vessel details and coordinates
     details_map = {
-        v1_mmsi: {"vessel_type": v1_type, "speed_knots": 0.5, "heading": 135.0},
-        v2_mmsi: {"vessel_type": v2_type, "speed_knots": 14.6, "heading": 30.0},
-        v3_mmsi: {"vessel_type": v3_type, "speed_knots": 0.2, "heading": 180.0}
+        v1_mmsi: {"vessel_type": v1_type, "speed_knots": 0.5, "heading": 135.0, "lat": v1_lat, "lon": v1_lon, "trajectory": v1_traj},
+        v2_mmsi: {"vessel_type": v2_type, "speed_knots": 14.6, "heading": 30.0, "lat": v2_lat, "lon": v2_lon, "trajectory": v2_traj},
+        v3_mmsi: {"vessel_type": v3_type, "speed_knots": 0.2, "heading": 180.0, "lat": v3_lat, "lon": v3_lon, "trajectory": v3_traj}
     }
     
     for item in watchlist:

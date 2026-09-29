@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ShieldAlert, MapPin, AlertCircle, CheckCircle2, Radio, Compass, RefreshCw } from 'lucide-react';
-import { MapContainer, TileLayer, Circle, Marker, Popup } from 'react-leaflet';
+import { ShieldAlert, MapPin, AlertCircle, CheckCircle2, Radio, Compass, RefreshCw, Navigation } from 'lucide-react';
+import { MapContainer, TileLayer, Circle, Marker, Popup, Polyline } from 'react-leaflet';
 import L from 'leaflet';
+import { defaultProactiveData } from '../data/defaultData';
 
 function createSanctuaryVesselIcon(score) {
   const isHigh = score >= 50;
@@ -21,8 +22,9 @@ function createSanctuaryVesselIcon(score) {
 }
 
 export default function ProactiveTab({ proactiveData, loading, onRefresh, selectedVesselMmsi }) {
-  const sensitiveZones = proactiveData?.sensitive_zones || [];
-  const watchlist = proactiveData?.watchlist || [];
+  const activeData = (proactiveData?.watchlist && proactiveData.watchlist.length > 0) ? proactiveData : defaultProactiveData;
+  const sensitiveZones = activeData.sensitive_zones || [];
+  const watchlist = activeData.watchlist || [];
   
   const scrollContainerRef = useRef(null);
 
@@ -142,28 +144,48 @@ export default function ProactiveTab({ proactiveData, loading, onRefresh, select
                 </Circle>
               ))}
 
-              {/* Render Watchlist Vessels */}
+              {/* Render Watchlist Vessel Trajectories & Markers */}
               {watchlist.map((item) => {
                 const score = item.risk_score;
-                const pos = item.mmsi === 'SYN-998822101' ? [10.51, 72.52] : item.mmsi === 'SYN-774411993' ? [18.92, 72.82] : [10.45, 72.38];
+                const pos = (item.lat && item.lon)
+                  ? [item.lat, item.lon]
+                  : (item.mmsi === 'SYN-998822101' ? [10.51, 72.52] : item.mmsi === 'SYN-774411993' ? [18.92, 72.82] : [10.45, 72.38]);
+                
+                const traj = item.trajectory || [];
+                const polyCoords = traj.map((pt) => [pt[0], pt[1]]);
+                const isHigh = score >= 50;
+
                 return (
-                  <Marker
-                    key={item.mmsi}
-                    position={pos}
-                    icon={createSanctuaryVesselIcon(score)}
-                  >
-                    <Popup>
-                      <div className="p-1">
-                        <div className="font-bold text-blue-950 text-xs font-mono">MMSI: {item.mmsi}</div>
-                        <div className="text-[11px] text-blue-800 font-semibold mt-0.5">
-                          Zone: {item.zone}
+                  <React.Fragment key={item.mmsi}>
+                    {polyCoords.length > 1 && (
+                      <Polyline
+                        positions={polyCoords}
+                        pathOptions={{
+                          color: isHigh ? '#e11d48' : '#2563eb',
+                          weight: isHigh ? 3 : 2,
+                          dashArray: isHigh ? undefined : '4, 4',
+                          opacity: 0.8,
+                        }}
+                      />
+                    )}
+
+                    <Marker position={pos} icon={createSanctuaryVesselIcon(score)}>
+                      <Popup>
+                        <div className="p-1 min-w-[200px]">
+                          <div className="font-bold text-blue-950 text-xs font-mono">MMSI: {item.mmsi}</div>
+                          <div className="text-[11px] text-blue-800 font-semibold mt-0.5">
+                            Zone: {item.zone}
+                          </div>
+                          <div className="text-[11px] text-slate-700 font-medium">
+                            Type: {item.vessel_type || 'Tanker'} | Speed: {item.speed_knots || 0} kn
+                          </div>
+                          <div className={`text-[11px] font-bold mt-1 ${isHigh ? 'text-rose-600' : 'text-blue-600'}`}>
+                            Anomaly Risk Score: {score.toFixed(0)}/100
+                          </div>
                         </div>
-                        <div className="text-[11px] text-amber-800 font-medium mt-0.5">
-                          Behavioral Anomaly Score: {score.toFixed(0)}/100
-                        </div>
-                      </div>
-                    </Popup>
-                  </Marker>
+                      </Popup>
+                    </Marker>
+                  </React.Fragment>
                 );
               })}
             </MapContainer>

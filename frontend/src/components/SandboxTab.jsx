@@ -1,6 +1,27 @@
 import React, { useState } from 'react';
-import { FlaskConical, Sliders, Play, Wind, Compass, RefreshCw, AlertCircle, Target, Database } from 'lucide-react';
-import { MapContainer, TileLayer, Circle, Polyline, CircleMarker, Tooltip } from 'react-leaflet';
+import { FlaskConical, Sliders, Play, Wind, Compass, RefreshCw, AlertCircle, Target, Database, Ship, Navigation } from 'lucide-react';
+import { MapContainer, TileLayer, Circle, Polyline, CircleMarker, Marker, Popup, Tooltip } from 'react-leaflet';
+import L from 'leaflet';
+import { defaultPipelineResults } from '../data/defaultData';
+
+function createSandboxShipIcon(score) {
+  const isHigh = score >= 70;
+  const isMed = score >= 40;
+  const color = isHigh ? '#e11d48' : isMed ? '#d97706' : '#2563eb';
+  const glow = isHigh ? 'rgba(225, 29, 72, 0.45)' : isMed ? 'rgba(217, 119, 6, 0.35)' : 'rgba(37, 99, 235, 0.35)';
+
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="filter: drop-shadow(0 0 5px ${glow});">
+      <polygon points="12 2 19 21 12 17 5 21 12 2" fill="${color}" fill-opacity="0.25"></polygon>
+    </svg>
+  `;
+  return L.divIcon({
+    html: `<div style="display: flex; align-items: center; justify-content: center;">${svg}</div>`,
+    className: 'custom-sandbox-ship',
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+  });
+}
 
 export default function SandboxTab({ pipelineResults }) {
   const [particlesCount, setParticlesCount] = useState(500);
@@ -8,8 +29,11 @@ export default function SandboxTab({ pipelineResults }) {
   const [loading, setLoading] = useState(false);
   const [simulationData, setSimulationData] = useState(null);
   const [error, setError] = useState(null);
+  const [selectedVessel, setSelectedVessel] = useState(null);
 
-  const hasForensicData = pipelineResults?.spill_detected && pipelineResults?.spill_polygon_coords?.length >= 3;
+  const effectiveResults = pipelineResults || defaultPipelineResults;
+  const hasForensicData = effectiveResults?.spill_detected && effectiveResults?.spill_polygon_coords?.length >= 3;
+  const rankedVessels = effectiveResults?.ranked_vessels || [];
 
   const handleRunSimulation = async () => {
     setLoading(true);
@@ -22,14 +46,12 @@ export default function SandboxTab({ pipelineResults }) {
         forecast_hours: [1, 3, 6, 12],
       };
 
-      // When forensic spill data is available, send it so the sandbox
-      // simulates the SAME spill detected on the Forensic Analysis page
       if (hasForensicData) {
-        body.spill_polygon_coords = pipelineResults.spill_polygon_coords;
-        body.spill_centroid = pipelineResults.centroid;
-        body.age_low = pipelineResults.age_low;
-        body.age_high = pipelineResults.age_high;
-        body.observation_time = pipelineResults.acquisition_time || pipelineResults.release_window?.[1] || null;
+        body.spill_polygon_coords = effectiveResults.spill_polygon_coords;
+        body.spill_centroid = effectiveResults.centroid;
+        body.age_low = effectiveResults.age_low;
+        body.age_high = effectiveResults.age_high;
+        body.observation_time = effectiveResults.acquisition_time || effectiveResults.release_window?.[1] || null;
       }
 
       const res = await fetch('/api/simulate_drift', {
@@ -52,9 +74,14 @@ export default function SandboxTab({ pipelineResults }) {
   };
 
   const center = simulationData?.center
-    || (hasForensicData ? pipelineResults.centroid : [18.43, 70.82]);
-  const forecastTracks = simulationData?.forecast_tracks || {};
-  const hindcast = simulationData?.hindcast || null;
+    || (hasForensicData ? effectiveResults.centroid : [18.43, 70.82]);
+  const forecastTracks = simulationData?.forecast_tracks || effectiveResults.forecast_tracks || {};
+  const hindcast = simulationData?.hindcast || {
+    estimated_origin: effectiveResults.estimated_origin,
+    origin_uncertainty_km: effectiveResults.origin_uncertainty_km,
+    track: effectiveResults.hindcast_track,
+    release_window: ['2026-08-29T18:00:00Z', '2026-08-29T20:30:00Z'],
+  };
 
   const forecastColors = {
     '1': '#0284c7',
@@ -78,13 +105,13 @@ export default function SandboxTab({ pipelineResults }) {
             </span>
           </div>
           <p className="text-xs text-blue-900 max-w-3xl font-medium">
-            Experiment with wind drift coupling factors, particle density, and surface ocean current dynamics to model slick deformation.
+            Experiment with wind drift coupling factors, particle density, and surface ocean current dynamics to model slick deformation and ship intersections.
           </p>
           {hasForensicData && (
             <div className="flex items-center gap-1.5 mt-1">
               <Database className="w-3 h-3 text-emerald-600" />
               <span className="text-[11px] text-emerald-800 font-semibold">
-                Using spill data from Forensic Analysis — {pipelineResults.area_km2} km², origin ({pipelineResults.estimated_origin?.[0]?.toFixed(2)}, {pipelineResults.estimated_origin?.[1]?.toFixed(2)})
+                Using spill data from Forensic Analysis — {effectiveResults.area_km2} km², origin ({effectiveResults.estimated_origin?.[0]?.toFixed(2)}, {effectiveResults.estimated_origin?.[1]?.toFixed(2)})
               </span>
             </div>
           )}
@@ -178,6 +205,50 @@ export default function SandboxTab({ pipelineResults }) {
             </div>
           </div>
 
+          {/* Suspect Vessels in Area Panel */}
+          {rankedVessels.length > 0 && (
+            <div className="glass-panel p-4 rounded-2xl border border-blue-200/90 bg-white/95 space-y-3 shadow-md">
+              <div className="flex items-center justify-between border-b border-blue-200/80 pb-2">
+                <h4 className="text-xs font-bold text-blue-950 flex items-center gap-1.5 font-heading">
+                  <Ship className="w-3.5 h-3.5 text-blue-600" />
+                  Candidate Suspect Ships ({rankedVessels.length})
+                </h4>
+                <span className="text-[10px] text-blue-800 font-semibold">AIS Attributed</span>
+              </div>
+
+              <div className="space-y-2">
+                {rankedVessels.map((v) => {
+                  const isHigh = v.attribution_score >= 70;
+                  const isSelected = selectedVessel?.mmsi === v.mmsi;
+                  return (
+                    <div
+                      key={v.mmsi}
+                      onClick={() => setSelectedVessel(isSelected ? null : v)}
+                      className={`cursor-pointer rounded-xl p-2.5 border transition-all text-xs ${
+                        isSelected
+                          ? 'border-blue-500 bg-blue-50/90 shadow-xs'
+                          : isHigh
+                          ? 'border-rose-200 bg-rose-50/50 hover:bg-rose-50'
+                          : 'border-slate-200 bg-slate-50/50 hover:bg-blue-50/50'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between font-mono">
+                        <span className="font-bold text-blue-950">{v.mmsi}</span>
+                        <span className={`font-extrabold ${isHigh ? 'text-rose-600' : 'text-blue-700'}`}>
+                          {v.attribution_score?.toFixed(1)}/100
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-slate-600 mt-1">
+                        <span>{v.vessel_type}</span>
+                        <span>Dist: {v.closest_distance_km} km</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Forensic Spill Info Panel */}
           {hasForensicData && (
             <div className="glass-panel p-4 rounded-2xl border border-emerald-200/90 bg-emerald-50/80 shadow-md">
@@ -188,25 +259,25 @@ export default function SandboxTab({ pipelineResults }) {
               <div className="grid grid-cols-2 gap-3 text-[11px]">
                 <div className="bg-white/70 rounded-xl p-2.5 border border-emerald-200">
                   <span className="text-emerald-900/80 block font-medium">Area</span>
-                  <span className="text-emerald-950 font-mono font-bold">{pipelineResults.area_km2} km²</span>
+                  <span className="text-emerald-950 font-mono font-bold">{effectiveResults.area_km2} km²</span>
                 </div>
                 <div className="bg-white/70 rounded-xl p-2.5 border border-emerald-200">
                   <span className="text-emerald-900/80 block font-medium">Age Range</span>
-                  <span className="text-emerald-950 font-mono font-bold">{pipelineResults.age_low}–{pipelineResults.age_high}h</span>
+                  <span className="text-emerald-950 font-mono font-bold">{effectiveResults.age_low}–{effectiveResults.age_high}h</span>
                 </div>
                 <div className="bg-white/70 rounded-xl p-2.5 border border-emerald-200">
                   <span className="text-emerald-900/80 block font-medium">Origin Lat</span>
-                  <span className="text-emerald-950 font-mono font-bold">{pipelineResults.estimated_origin?.[0]?.toFixed(4)}</span>
+                  <span className="text-emerald-950 font-mono font-bold">{effectiveResults.estimated_origin?.[0]?.toFixed(4)}</span>
                 </div>
                 <div className="bg-white/70 rounded-xl p-2.5 border border-emerald-200">
                   <span className="text-emerald-900/80 block font-medium">Origin Lon</span>
-                  <span className="text-emerald-950 font-mono font-bold">{pipelineResults.estimated_origin?.[1]?.toFixed(4)}</span>
+                  <span className="text-emerald-950 font-mono font-bold">{effectiveResults.estimated_origin?.[1]?.toFixed(4)}</span>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Hindcast Info Panel (from simulation result) */}
+          {/* Hindcast Info Panel */}
           {hindcast && (
             <div className="glass-panel p-4 rounded-2xl border border-blue-200/90 bg-white/95 shadow-md">
               <h4 className="text-xs font-bold text-amber-800 flex items-center gap-1.5 mb-2 font-heading">
@@ -224,12 +295,12 @@ export default function SandboxTab({ pipelineResults }) {
                 </div>
                 <div className="bg-blue-100/70 rounded-xl p-2.5 border border-blue-200">
                   <span className="text-blue-900/80 block font-medium">Uncertainty</span>
-                  <span className="text-amber-800 font-mono font-bold">+/-{hindcast.origin_uncertainty_km.toFixed(1)} km</span>
+                  <span className="text-amber-800 font-mono font-bold">+/-{hindcast.origin_uncertainty_km?.toFixed(1) || '4.5'} km</span>
                 </div>
                 <div className="bg-blue-100/70 rounded-xl p-2.5 border border-blue-200">
                   <span className="text-blue-900/80 block font-medium">Release Window</span>
                   <span className="text-blue-950 font-mono font-bold text-[10px]">
-                    {hindcast.release_window[0].slice(11, 16)} – {hindcast.release_window[1].slice(11, 16)}
+                    {hindcast.release_window ? `${hindcast.release_window[0]?.slice(11, 16)} – ${hindcast.release_window[1]?.slice(11, 16)}` : '18:00 - 20:30'}
                   </span>
                 </div>
               </div>
@@ -242,32 +313,31 @@ export default function SandboxTab({ pipelineResults }) {
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-bold text-blue-950 font-heading flex items-center gap-2">
               <Compass className="w-4 h-4 text-blue-600" />
-              Simulated Particle Dispersion Cone
+              Simulated Particle Dispersion Cone & AIS Ships
             </h3>
             <span className="text-[11px] text-blue-900/80 font-medium">
               Forecast Timeline: +1h (Sky), +3h (Blue), +6h (Indigo), +12h (Purple)
             </span>
           </div>
 
-          <div className="relative w-full h-[500px] rounded-2xl overflow-hidden border border-blue-200 glass-panel shadow-sm">
+          <div className="relative w-full h-[580px] rounded-2xl overflow-hidden border border-blue-200 glass-panel shadow-sm">
             <MapContainer center={center} zoom={9} scrollWheelZoom={true} className="w-full h-full">
               <TileLayer
                 attribution='&copy; CARTO Voyager'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
 
-              {/* Forensic spill polygon outline (when using forensic data) */}
+              {/* Forensic spill polygon outline */}
               {hasForensicData && (
                 <>
                   {(() => {
-                    const coords = pipelineResults.spill_polygon_coords;
+                    const coords = effectiveResults.spill_polygon_coords;
                     if (!coords || coords.length < 3) return null;
-                    // The coords from backend are already [lat, lon]
-                    const positions = coords.map(c => [c[0], c[1]]);
+                    const positions = coords.map((c) => [c[0], c[1]]);
                     return (
                       <Polyline
                         positions={positions}
-                        pathOptions={{ color: '#e11d48', weight: 2, dashArray: '6 4', opacity: 0.7 }}
+                        pathOptions={{ color: '#e11d48', weight: 2.5, dashArray: '6 4', opacity: 0.8 }}
                       />
                     );
                   })()}
@@ -320,13 +390,69 @@ export default function SandboxTab({ pipelineResults }) {
               )}
 
               {/* Hindcast: uncertainty radius */}
-              {hindcast?.estimated_origin && hindcast?.origin_uncertainty_km && (
+              {hindcast?.estimated_origin && (
                 <Circle
                   center={hindcast.estimated_origin}
-                  radius={hindcast.origin_uncertainty_km * 1000}
+                  radius={(hindcast.origin_uncertainty_km || 4.5) * 1000}
                   pathOptions={{ color: '#d97706', weight: 1, fillColor: '#d97706', fillOpacity: 0.1, dashArray: '4 4' }}
                 />
               )}
+
+              {/* Render Suspect AIS Ships and Trajectories */}
+              {rankedVessels.map((vessel) => {
+                const score = vessel.attribution_score;
+                const traj = vessel.trajectory || [];
+                const lastPos = traj.length > 0 ? [traj[traj.length - 1][0], traj[traj.length - 1][1]] : null;
+                const polyPositions = traj.map((pt) => [pt[0], pt[1]]);
+                const isHigh = score >= 70;
+                const isSelected = selectedVessel?.mmsi === vessel.mmsi;
+
+                return (
+                  <React.Fragment key={vessel.mmsi}>
+                    {polyPositions.length > 1 && (
+                      <Polyline
+                        positions={polyPositions}
+                        pathOptions={{
+                          color: isSelected ? '#3b82f6' : isHigh ? '#e11d48' : '#64748b',
+                          weight: isSelected ? 4 : isHigh ? 3 : 2,
+                          dashArray: isHigh ? undefined : '5, 5',
+                          opacity: isSelected ? 1.0 : 0.75,
+                        }}
+                      />
+                    )}
+
+                    {lastPos && (
+                      <Marker
+                        position={lastPos}
+                        icon={createSandboxShipIcon(score)}
+                        eventHandlers={{
+                          click: () => setSelectedVessel(isSelected ? null : vessel),
+                        }}
+                      >
+                        <Popup>
+                          <div className="p-1 min-w-[210px]">
+                            <div className="flex items-center justify-between border-b border-slate-200 pb-1 mb-1.5">
+                              <span className="font-bold text-xs font-mono text-blue-950">MMSI: {vessel.mmsi}</span>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isHigh ? 'bg-rose-100 text-rose-800' : 'bg-blue-100 text-blue-800'}`}>
+                                Score: {score.toFixed(1)}/100
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-700 font-medium">
+                              Type: <b>{vessel.vessel_type}</b>
+                            </div>
+                            <div className="text-[11px] text-slate-600">
+                              Closest Dist: <b>{vessel.closest_distance_km} km</b>
+                            </div>
+                            <div className="text-[11px] text-slate-600">
+                              Confidence: <b className={isHigh ? 'text-rose-600' : 'text-blue-600'}>{vessel.confidence_level}</b>
+                            </div>
+                          </div>
+                        </Popup>
+                      </Marker>
+                    )}
+                  </React.Fragment>
+                );
+              })}
             </MapContainer>
           </div>
         </div>
