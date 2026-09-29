@@ -611,7 +611,29 @@ def export_report(req: Optional[AnalyzeRequest] = None):
 # Mount compiled React frontend static files if built (for Render deployment)
 FRONTEND_DIST = os.path.join(WORKSPACE_ROOT, "frontend", "dist")
 if os.path.exists(FRONTEND_DIST):
-    app.mount("/", StaticFiles(directory=FRONTEND_DIST, html=True), name="frontend")
+    from fastapi.responses import FileResponse
+
+    assets_dir = os.path.join(FRONTEND_DIST, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    sample_assets_dir = os.path.join(FRONTEND_DIST, "sample_assets")
+    if os.path.exists(sample_assets_dir):
+        app.mount("/sample_assets", StaticFiles(directory=sample_assets_dir), name="sample_assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa_frontend(full_path: str):
+        target_file = os.path.join(FRONTEND_DIST, full_path)
+        if full_path and os.path.exists(target_file) and os.path.isfile(target_file):
+            return FileResponse(target_file)
+        return FileResponse(
+            os.path.join(FRONTEND_DIST, "index.html"),
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
 
 if __name__ == "__main__":
     import uvicorn
