@@ -46,6 +46,8 @@ yarn-error.log*
 .pnpm-debug.log*
 dist-ssr/
 *.local
+!frontend/dist/**
+!frontend/dist
 
 # macOS
 .DS_Store

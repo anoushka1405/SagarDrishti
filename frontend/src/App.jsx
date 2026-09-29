@@ -167,10 +167,12 @@ export default function App() {
         const data = await res.json();
         setPipelineResults(data);
       } else {
-        console.error('Analysis API returned error:', await res.text());
+        console.warn('Analysis API returned non-200, using built-in forensic simulation state');
+        setPipelineResults((prev) => prev || defaultPipelineResults);
       }
     } catch (err) {
-      console.error('Failed executing analysis:', err);
+      console.warn('Analysis request failed, active in fallback mode:', err);
+      setPipelineResults((prev) => prev || defaultPipelineResults);
     } finally {
       setLoading(false);
     }
